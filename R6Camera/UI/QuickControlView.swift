@@ -33,7 +33,15 @@ struct QuickControlView: View {
     }
     private func cell(_ control: CameraControl) -> some View {
         Button { selection = control } label: {
-            Text(control.value(camera.settings)).font(.system(size: 11, weight: .medium)).lineLimit(1).minimumScaleFactor(0.7)
+            Group {
+                switch control {
+                case .format: CanonGlyph(kind: .quality, label: camera.settings.format == .raw ? "R" : "L")
+                case .drive: CanonGlyph(kind: .drive, label: camera.settings.drive.rawValue)
+                case .style: CanonGlyph(kind: .style, label: camera.settings.style.cameraCode)
+                case .eye: CanonGlyph(kind: .eye)
+                default: Text(control.value(camera.settings)).font(.system(size: 11, weight: .medium)).lineLimit(1).minimumScaleFactor(0.7)
+                }
+            }
                 .frame(width: 64, height: 28).background(.black.opacity(0.7))
                 .overlay(Rectangle().stroke((selection ?? initial) == control ? .yellow : .white.opacity(0.6), lineWidth: (selection ?? initial) == control ? 2 : 1))
         }.accessibilityLabel(control.rawValue).accessibilityIdentifier("quick.\(control)")

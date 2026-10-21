@@ -21,4 +21,9 @@ final class ZoomDialTests: XCTestCase {
         XCTAssertEqual(dial.zoom(start: 1, drag: -1000, range: 0.5...10), 0.5)
         XCTAssertEqual(dial.zoom(start: 1, drag: 1000, range: 0.5...10), 10)
     }
+    func testLowerZoomIsAbovePointerAndHigherZoomBelow() {
+        let dial = ZoomDialGeometry(size: CGSize(width: 852, height: 360))
+        XCTAssertLessThan(dial.point(angle: dial.angle(for: 0.5, selected: 1)).y, dial.center.y)
+        XCTAssertGreaterThan(dial.point(angle: dial.angle(for: 2, selected: 1)).y, dial.center.y)
+    }
 }

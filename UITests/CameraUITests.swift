@@ -18,7 +18,7 @@ final class CameraUITests: XCTestCase {
             XCTAssertGreaterThan(app.frame.width, app.frame.height)
         }
         app.buttons["zoom.open"].tap()
-        let wheel = app.otherElements["zoom.wheel"]
+        let wheel = app.descendants(matching: .any)["zoom.wheel"]
         XCTAssertTrue(wheel.waitForExistence(timeout: 3))
         capture("02-Zoom-wheel")
         // Close by tapping the scene, away from the wheel and controls.

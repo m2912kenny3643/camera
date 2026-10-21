@@ -6,7 +6,7 @@ struct CameraSettingsView: View {
     @State private var tab = 0
     @State private var page = 0
     @State private var editor: CameraControl?
-    @State private var selected = ""
+    @State private var selected = CameraControl.format.rawValue
     @State private var resetPrompt = false
     private let names = ["拍攝", "AF", "播放", "設定", "自訂", "我的選單"]
     private let symbols = ["camera.fill", "AF", "play.rectangle", "wrench.fill", "camera.badge.ellipsis", "star.fill"]
@@ -25,7 +25,7 @@ struct CameraSettingsView: View {
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
                     ForEach(names.indices, id: \.self) { index in
-                        Button { tab = index; page = 0; selected = "" } label: {
+                        Button { tab = index; page = 0; selected = pages[0].first?.rawValue ?? "" } label: {
                             Group {
                                 if index == 1 { Text("AF").font(.system(size: 19, weight: .bold)) }
                                 else { Image(systemName: symbols[index]).font(.system(size: 20)) }
@@ -40,7 +40,7 @@ struct CameraSettingsView: View {
                 Rectangle().fill(colors[tab]).frame(height: 2)
                 HStack(spacing: 5) {
                     ForEach(pages.indices, id: \.self) { index in
-                        Button("\(index + 1)") { page = index; selected = "" }.frame(width: 26, height: 23)
+                        Button("\(index + 1)") { page = index; selected = pages[index].first?.rawValue ?? "" }.frame(width: 26, height: 23)
                             .background(safePage == index ? colors[tab].opacity(0.75) : .black)
                     }
                     Spacer()
@@ -82,7 +82,8 @@ struct CameraSettingsView: View {
                     Button("MENU  返回") { dismiss() }.accessibilityIdentifier("menu.close")
                     Spacer()
                     Text("輕點項目設定").foregroundStyle(.gray).font(.system(size: 10))
-                    Text("SET  確認").font(.system(size: 12))
+                    Button("SET  確認") { editor = pages[safePage].first { $0.rawValue == selected } }.font(.system(size: 12))
+                        .disabled(!pages[safePage].contains { $0.rawValue == selected })
                 }.font(.system(size: 12)).frame(height: 31)
             }.padding(.horizontal, max(16, g.size.width * 0.06)).padding(.vertical, 8)
                 .background(.black).foregroundStyle(.white).buttonStyle(.plain)

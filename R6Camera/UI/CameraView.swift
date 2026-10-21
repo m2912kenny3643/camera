@@ -9,6 +9,7 @@ struct CameraView: View {
     @State private var info = true
     @State private var magnification = false
     @State private var pinchStart: CGFloat?
+    @State private var notice: String?
     enum Panel: String, Identifiable { case menu, playback; var id: String { rawValue } }
     var body: some View {
         GeometryReader { proxy in
@@ -16,8 +17,8 @@ struct CameraView: View {
             VStack(spacing: 0) {
                 ZStack {
                     viewfinder
-                    if quick == nil { hud(unit: unit) }
                     if zoomOpen { ZoomWheel(camera: camera) { zoomOpen = false } }
+                    if quick == nil { hud(unit: unit) }
                     if let quick { QuickControlView(camera: camera, initial: quick) { self.quick = nil } }
                 }.clipped()
                 exposureBar.frame(height: max(36, 43 * unit))
@@ -26,6 +27,13 @@ struct CameraView: View {
         .preferredColorScheme(.dark).onAppear { camera.start() }
         .onChange(of: scenePhase) { _, phase in if phase == .active { camera.start() } else { camera.stop() } }
         .onChange(of: panel) { _, panel in camera.captureEnabled = panel == nil }
+        .task(id: camera.status) {
+            notice = nil
+            guard camera.isRunning, camera.status != "就緒" else { return }
+            notice = camera.status
+            do { try await Task.sleep(nanoseconds: 4_000_000_000) } catch { return }
+            notice = nil
+        }
         .fullScreenCover(item: $panel) { item in
             switch item {
             case .menu: CameraSettingsView(camera: camera)
@@ -107,27 +115,39 @@ struct CameraView: View {
                         Button { camera.unlockTracking() } label: { Image(systemName: "xmark").frame(width: 38, height: 30).background(.black.opacity(0.5)) }.accessibilityLabel("解除觸控對焦").accessibilityIdentifier("focus.unlock")
                     }
                     if camera.settings.autofocus == .manual { Button { magnification.toggle() } label: { Image(systemName: "plus.magnifyingglass").frame(width: 38, height: 30) } }
-                    Button { quick = nil; zoomOpen.toggle() } label: {
-                        Text(String(format: "%g×", Double((camera.zoom * 10).rounded() / 10))).font(.system(size: 14, weight: .medium)).frame(width: 40, height: 40).background(.black.opacity(0.25)).overlay(Circle().stroke(.white, lineWidth: 1))
-                    }.accessibilityIdentifier("zoom.open")
+                    if !zoomOpen {
+                        Button { quick = nil; zoomOpen = true } label: {
+                            Text(String(format: "%g×", Double((camera.zoom * 10).rounded() / 10))).font(.system(size: 14, weight: .medium)).frame(width: 40, height: 40).background(.black.opacity(0.25)).overlay(Circle().stroke(.white, lineWidth: 1))
+                        }.accessibilityIdentifier("zoom.open")
+                    }
                 }.frame(width: 66 * unit)
             }
             if camera.tracking.lost { Text("目標遺失 · 請重新點選").font(.caption2).padding(3).background(.black.opacity(0.65)) }
+            else if let notice { Text(notice).font(.caption2).padding(3).background(.black.opacity(0.65)) }
             if !info { Button("INFO") { info.toggle() }.font(.caption2) }
         }.padding(.horizontal, 12).padding(.vertical, 7).buttonStyle(.plain).shadow(color: .black, radius: 1, x: 0, y: 1)
     }
     private var exposureBar: some View {
-        HStack(spacing: 10) {
-            Button { camera.cancelCapture(); panel = .playback } label: { Image(systemName: "play.rectangle").font(.system(size: 23)).frame(width: 44) }
-            Spacer(minLength: 1)
-            Button(CameraSettings.shutterLabel(camera.actualShutter)) { open(.shutter) }.monospacedDigit()
-            Text(String(format: "F%.1f", camera.aperture)).foregroundStyle(.gray).padding(.horizontal, 7)
-            Button { open(.exposure) } label: { ExposureScale(value: camera.settings.exposureBias).frame(width: 145, height: 26) }
-            Button("ISO \(Int(camera.actualISO))") { open(.iso) }.monospacedDigit()
-            Button { camera.toggleExposureLock() } label: { Text("✱").foregroundStyle(camera.exposureLocked ? .yellow : .gray) }.accessibilityLabel("自動曝光鎖")
-            Spacer(minLength: 1)
-            Button("MENU") { camera.cancelCapture(); panel = .menu }.font(.system(size: 13, weight: .medium)).padding(5).overlay(Rectangle().stroke(.white))
-        }.padding(.horizontal, 10).background(.black).buttonStyle(.plain).lineLimit(1).minimumScaleFactor(0.7)
+        GeometryReader { g in
+            ZStack {
+                Button { camera.cancelCapture(); camera.captureEnabled = false; panel = .playback } label: {
+                    Image(systemName: "play.rectangle").font(.system(size: 23)).frame(width: 44, height: g.size.height)
+                }.position(x: g.size.width * 0.045, y: g.size.height / 2)
+                Button(CameraSettings.shutterLabel(camera.actualShutter)) { open(.shutter) }
+                    .monospacedDigit().frame(width: 92, height: g.size.height).position(x: g.size.width * 0.23, y: g.size.height / 2)
+                Text(String(format: "F%.1f", camera.aperture)).foregroundStyle(.gray)
+                    .position(x: g.size.width * 0.34, y: g.size.height / 2)
+                Button { open(.exposure) } label: { ExposureScale(value: camera.settings.requiresExactExposure ? Double(camera.actualExposureOffset) : camera.settings.exposureBias).frame(width: g.size.width * 0.22, height: 26) }
+                    .position(x: g.size.width * 0.53, y: g.size.height / 2)
+                Button("ISO \(Int(camera.actualISO))") { open(.iso) }.monospacedDigit()
+                    .frame(width: 100, height: g.size.height).position(x: g.size.width * 0.74, y: g.size.height / 2)
+                Button { camera.toggleExposureLock() } label: { Text("✱").foregroundStyle(camera.exposureLocked ? .yellow : .gray) }
+                    .accessibilityLabel("自動曝光鎖").position(x: g.size.width * 0.84, y: g.size.height / 2)
+                Button("MENU") { camera.cancelCapture(); camera.captureEnabled = false; panel = .menu }
+                    .font(.system(size: 13, weight: .medium)).padding(5).overlay(Rectangle().stroke(.white))
+                    .position(x: g.size.width * 0.95, y: g.size.height / 2)
+            }
+        }.background(.black).buttonStyle(.plain).lineLimit(1).minimumScaleFactor(0.7)
     }
     private func open(_ control: CameraControl) { zoomOpen = false; quick = control }
 }
@@ -142,7 +162,7 @@ private struct TrackingOverlay: View {
             if let point = result.touchPoint {
                 Rectangle().stroke(Color.blue, lineWidth: 1.5).frame(width: 36, height: 36).position(ViewfinderGeometry.display(point, imageAspect: aspect, size: g.size))
             } else if let target = result.selected, !result.lost {
-                let rect = result.locked ? target.focusBounds(eyes) : target.bounds
+                let rect = result.locked ? target.focusBounds(eyes) : (target.headBounds ?? target.bounds)
                 Rectangle().stroke(result.locked ? Color.blue : Color.white, lineWidth: 1.5)
                     .frame(width: max(10, rect.width * image.width), height: max(10, rect.height * image.height))
                     .position(x: image.minX + rect.midX * image.width, y: image.minY + rect.midY * image.height)

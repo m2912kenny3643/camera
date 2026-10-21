@@ -23,6 +23,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     private var appliedExposureLock = false
     private var captureTask: Task<Void, Never>?
     private var focusLocked = false
+    private var focusWasSingle = false
     private var sawFocusAdjustment = false
     private var lastFocusPoint = CGPoint(x: -1, y: -1)
     private var trackingFocusSuspended = false
@@ -52,6 +53,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     @Published var frameAspect: CGFloat = 0.75
     @Published var histogram: [Float] = []
     @Published var styledFrame: CGImage?
+    @Published var actualExposureOffset: Float = 0
     @Published var actualISO: Float = 0
     @Published var actualShutter: Double = 1.0 / 125
     @Published var aperture: Float = 1.6
@@ -371,6 +373,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         }
         let count = jobs.count
         DispatchQueue.main.async {
+            self.actualExposureOffset = device.exposureTargetOffset.isFinite ? device.exposureTargetOffset : 0
             self.actualISO = device.iso
             self.actualShutter = device.exposureDuration.seconds
             self.aperture = device.lensAperture
@@ -424,7 +427,8 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             do {
                 try device.lockForConfiguration()
                 defer { device.unlockForConfiguration() }
-                if device.isLockingFocusWithCustomLensPositionSupported, let position = self.lastTrackedLensPosition {
+                let position = self.focusWasSingle ? device.lensPosition : self.lastTrackedLensPosition
+                if device.isLockingFocusWithCustomLensPositionSupported, let position {
                     device.setFocusModeLocked(lensPosition: position, completionHandler: nil)
                     self.trackingFocusSuspended = true
                 } else if device.isFocusModeSupported(.locked) {
@@ -439,7 +443,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         let display = ViewfinderGeometry.display(point, imageAspect: frameAspect, size: layer.bounds.size)
         let devicePoint = layer.captureDevicePointConverted(fromLayerPoint: display)
         sessionQueue.async {
-            guard let device = self.device else { return }
+            guard self.session.isRunning, let device = self.device else { return }
             self.lastTrackedLensPosition = device.lensPosition
             if !force && !self.trackingFocusSuspended && hypot(self.lastFocusPoint.x - devicePoint.x, self.lastFocusPoint.y - devicePoint.y) < 0.015 { return }
             do {
@@ -453,6 +457,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                     self.lastFocusPoint = devicePoint
                 }
                 self.focusLocked = true
+                self.focusWasSingle = single
                 self.sawFocusAdjustment = false
                 if !self.appliedExposureLock && !self.appliedSettings.requiresExactExposure,
                    device.isExposurePointOfInterestSupported {

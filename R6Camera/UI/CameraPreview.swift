@@ -12,16 +12,18 @@ struct CameraPreview: UIViewRepresentable {
         #endif
         view.previewLayer.videoGravity = .resizeAspectFill
         camera.previewLayer = view.previewLayer
-        let interaction = AVCaptureEventInteraction { [weak camera] event in
-            guard let camera else { return }
+        let interaction = AVCaptureEventInteraction { [weak camera, weak view] event in
+            guard let camera, let view else { return }
             DispatchQueue.main.async {
                 switch event.phase {
                 case .began:
-                    if camera.settings.drive == .burst { camera.beginBurst() }
+                    view.hardwareBurst = camera.settings.drive == .burst
+                    if view.hardwareBurst { camera.beginBurst() }
                     else { camera.shutter() }
                 case .ended:
-                    if camera.settings.drive == .burst { camera.cancelCapture() }
-                case .cancelled: camera.cancelCapture()
+                    if view.hardwareBurst { camera.cancelCapture() }
+                    view.hardwareBurst = false
+                case .cancelled: camera.cancelCapture(); view.hardwareBurst = false
                 @unknown default: break
                 }
             }
@@ -42,6 +44,7 @@ final class PreviewSurface: UIView {
     var previewLayer: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
     weak var camera: CameraController?
     var captureInteraction: AVCaptureEventInteraction?
+    var hardwareBurst = false
     var rotationAngle: CGFloat = 0
     override func layoutSubviews() {
         super.layoutSubviews()
