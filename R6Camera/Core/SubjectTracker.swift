@@ -120,7 +120,7 @@ struct SubjectTracker {
         if result.touchPoint != nil { return result }
         if let previous = result.selected {
             let matches = candidates.filter { $0.kind == previous.kind }
-                .map { ($0, Self.matchScore(previous.bounds, $0.bounds)) }
+                .map { ($0, Self.associationScore(previous, $0)) }
                 .filter { $0.1 > 0.15 }.sorted { $0.1 > $1.1 }
             if result.locked && matches.count > 1 && matches[0].1 - matches[1].1 < 0.15 {
                 // Geometric identity is ambiguous at a crossing. Require a fresh user choice.
@@ -190,6 +190,13 @@ struct SubjectTracker {
         let distance = hypot(a.midX - b.midX, a.midY - b.midY)
         // A near-center gate helps small eyes/subjects without joining distant lookalikes.
         return max(overlap, distance < 0.08 ? 0.3 * (1 - distance / 0.08) : 0)
+    }
+    private static func associationScore(_ a: SubjectDetection, _ b: SubjectDetection) -> CGFloat {
+        let body = matchScore(a.bounds, b.bounds)
+        if let first = a.headBounds, let second = b.headBounds {
+            return max(body, matchScore(first, second))
+        }
+        return body
     }
 }
 

@@ -131,6 +131,21 @@ final class SubjectTrackerTests: XCTestCase {
         XCTAssertFalse(settings.controlsISO)
         XCTAssertTrue(settings.controlsShutter)
     }
+    func testHeadObservationMaintainsLockWhenBodyDetectorDropsOut() {
+        var tracker = SubjectTracker()
+        var full = person(0.2)
+        let head = CGRect(x: 0.22, y: 0.21, width: 0.07, height: 0.08)
+        full.headBounds = head
+        _ = tracker.update([full], at: 0, settings: CameraSettings())
+        tracker.select(at: CGPoint(x: 0.25, y: 0.25))
+        let identity = tracker.result.selected?.id
+        let faceOnly = SubjectDetection(kind: .person, bounds: head, confidence: 0.9, headBounds: head)
+        let frame = tracker.update([faceOnly], at: 0.1, settings: CameraSettings())
+        XCTAssertTrue(frame.locked)
+        XCTAssertFalse(frame.missing)
+        XCTAssertEqual(frame.selected?.id, identity)
+        if case .continuous = frame.focusAction {} else { XCTFail("Observed head must keep lens tracking") }
+    }
     func testShutterAutoDoesNotReleaseManualISO() {
         var settings = CameraSettings(); settings.program = .manual
         settings.useAutomaticShutter()

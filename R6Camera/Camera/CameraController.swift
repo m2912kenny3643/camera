@@ -408,7 +408,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         }
     }
     func tap(at imagePoint: CGPoint) {
-        guard settings.autofocus != .manual else { return }
+        guard isRunning || isUIFixture, settings.autofocus != .manual else { return }
         singleFocused = false
         if isUIFixture {
             fixtureTracker.select(at: imagePoint, eyes: settings.eyes)

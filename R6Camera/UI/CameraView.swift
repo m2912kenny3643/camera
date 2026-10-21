@@ -117,7 +117,7 @@ struct CameraView: View {
                     if camera.settings.autofocus == .manual { Button { magnification.toggle() } label: { Image(systemName: "plus.magnifyingglass").frame(width: 38, height: 30) } }
                     if !zoomOpen {
                         Button { quick = nil; zoomOpen = true } label: {
-                            Text(String(format: "%g×", Double((camera.zoom * 10).rounded() / 10))).font(.system(size: 14, weight: .medium)).frame(width: 40, height: 40).background(.black.opacity(0.25)).overlay(Circle().stroke(.white, lineWidth: 1))
+                            Text(String(format: "%g×", Double((camera.zoom * 10).rounded() / 10))).font(.system(size: 14, weight: .medium)).frame(width: 40, height: 40).background(Circle().fill(.black.opacity(0.25))).overlay(Circle().stroke(.white, lineWidth: 1))
                         }.accessibilityIdentifier("zoom.open")
                     }
                 }.frame(width: 66 * unit)
