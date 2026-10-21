@@ -25,6 +25,8 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     private var focusLocked = false
     private var sawFocusAdjustment = false
     private var lastFocusPoint = CGPoint(x: -1, y: -1)
+    private var trackingFocusSuspended = false
+    private var lastTrackedLensPosition: Float?
     private var notificationTokens: [NSObjectProtocol] = []
     weak var previewLayer: AVCaptureVideoPreviewLayer?
 
@@ -62,9 +64,11 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                 self.tracking = result
                 self.frameAspect = aspect
                 self.histogram = histogram
-                if let subject = result.selected, !result.missing,
-                   self.settings.autofocus == .servo {
-                    self.focusOnImagePoint(subject.focusPoint(self.settings.eyes), single: false)
+                if self.settings.autofocus == .servo {
+                    if result.missing { self.holdTrackedFocus() }
+                    else if let subject = result.selected {
+                        self.focusOnImagePoint(subject.focusPoint(self.settings.eyes), single: false)
+                    } else { self.resumeSearchIfNeeded() }
                 }
             }
         }
@@ -125,7 +129,13 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             sessionQueue.async {
                 do {
                     if !self.configured { try self.configureSession(initial: startupSettings) }
-                    if !self.session.isRunning { self.session.startRunning() }
+                    if !self.session.isRunning {
+                        self.trackingFocusSuspended = false
+                        self.focusLocked = false
+                        self.lastFocusPoint = CGPoint(x: -1, y: -1)
+                        try self.applyToDevice(startupSettings)
+                        self.session.startRunning()
+                    }
                     DispatchQueue.main.async {
                         self.isRunning = self.session.isRunning
                         self.status = "就緒"
@@ -140,6 +150,8 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         singleFocused = false
         sessionQueue.async {
             self.focusLocked = false
+            self.trackingFocusSuspended = false
+            self.lastTrackedLensPosition = nil
             self.lastFocusPoint = CGPoint(x: -1, y: -1)
             if self.session.isRunning { self.session.stopRunning() }
             DispatchQueue.main.async { self.isRunning = false }
@@ -242,12 +254,13 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         try device.lockForConfiguration()
         defer { device.unlockForConfiguration() }
         let changedAF = appliedSettings.autofocus != settings.autofocus
+        if changedAF { trackingFocusSuspended = false; lastTrackedLensPosition = nil }
         appliedSettings = settings
         if settings.autofocus == .manual {
             if device.isLockingFocusWithCustomLensPositionSupported {
                 device.setFocusModeLocked(lensPosition: settings.manualFocus, completionHandler: nil)
             }
-        } else if changedAF || !focusLocked {
+        } else if !trackingFocusSuspended && (changedAF || !focusLocked) {
             let mode: AVCaptureDevice.FocusMode = settings.autofocus == .servo ? .continuousAutoFocus : .autoFocus
             if device.isFocusModeSupported(mode) { device.focusMode = mode }
         }
@@ -372,27 +385,63 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         vision.unlock()
         singleFocused = false
         sessionQueue.async { self.focusLocked = false; self.lastFocusPoint = CGPoint(x: -1, y: -1) }
+        resumeSearchIfNeeded()
+    }
+    private func holdTrackedFocus() {
+        sessionQueue.async {
+            guard !self.trackingFocusSuspended, self.session.isRunning, let device = self.device else { return }
+            do {
+                try device.lockForConfiguration()
+                defer { device.unlockForConfiguration() }
+                if device.isLockingFocusWithCustomLensPositionSupported, let position = self.lastTrackedLensPosition {
+                    device.setFocusModeLocked(lensPosition: position, completionHandler: nil)
+                    self.trackingFocusSuspended = true
+                } else if device.isFocusModeSupported(.locked) {
+                    device.focusMode = .locked
+                    self.trackingFocusSuspended = true
+                }
+            } catch { self.report(error) }
+        }
+    }
+    private func resumeSearchIfNeeded() {
+        sessionQueue.async {
+            guard self.trackingFocusSuspended, self.appliedSettings.autofocus == .servo, let device = self.device else { return }
+            do {
+                try device.lockForConfiguration()
+                defer { device.unlockForConfiguration() }
+                if device.isFocusModeSupported(.continuousAutoFocus) {
+                    device.focusMode = .continuousAutoFocus
+                    self.trackingFocusSuspended = false
+                    self.lastFocusPoint = CGPoint(x: -1, y: -1)
+                    self.lastTrackedLensPosition = nil
+                }
+            } catch { self.report(error) }
+        }
     }
     private func focusOnImagePoint(_ point: CGPoint, single: Bool, force: Bool = false) {
-        guard settings.autofocus != .manual, let layer = previewLayer else { return }
+        guard isRunning, settings.autofocus != .manual, let layer = previewLayer else { return }
         let display = ViewfinderGeometry.display(point, imageAspect: frameAspect, size: layer.bounds.size)
         let devicePoint = layer.captureDevicePointConverted(fromLayerPoint: display)
         sessionQueue.async {
             guard let device = self.device else { return }
-            if !force && hypot(self.lastFocusPoint.x - devicePoint.x, self.lastFocusPoint.y - devicePoint.y) < 0.015 { return }
-            self.lastFocusPoint = devicePoint
+            self.lastTrackedLensPosition = device.lensPosition
+            if !force && !self.trackingFocusSuspended && hypot(self.lastFocusPoint.x - devicePoint.x, self.lastFocusPoint.y - devicePoint.y) < 0.015 { return }
             do {
                 try device.lockForConfiguration()
+                defer { device.unlockForConfiguration() }
                 if device.isFocusPointOfInterestSupported { device.focusPointOfInterest = devicePoint }
                 let mode: AVCaptureDevice.FocusMode = single ? .autoFocus : .continuousAutoFocus
-                if device.isFocusModeSupported(mode) { device.focusMode = mode }
+                if device.isFocusModeSupported(mode) {
+                    device.focusMode = mode
+                    self.trackingFocusSuspended = false
+                    self.lastFocusPoint = devicePoint
+                }
                 self.focusLocked = single
                 self.sawFocusAdjustment = false
                 if !self.appliedExposureLock && !self.appliedSettings.requiresExactExposure,
                    device.isExposurePointOfInterestSupported {
                     device.exposurePointOfInterest = devicePoint
                 }
-                device.unlockForConfiguration()
             } catch { self.report(error) }
         }
     }
