@@ -5,6 +5,7 @@ struct CameraSettingsView: View {
     let quick: Bool
     @Environment(\.dismiss) private var dismiss
     @State private var tab = 0
+    @State private var selectedRow = "拍攝模式"
     private let tabs = ["拍攝", "AF", "顯示", "設定", "我的選單"]
     private let colors: [Color] = [.red, .purple, .yellow, .orange, .green]
 
@@ -12,16 +13,27 @@ struct CameraSettingsView: View {
         Binding(get: { camera.settings[keyPath: keyPath] }, set: { value in camera.update { $0[keyPath: keyPath] = value } })
     }
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            HStack {
+                Text("MENU").font(.system(size: 20, weight: .bold, design: .monospaced))
+                Spacer()
+                Button("返回拍攝") { dismiss() }
+                    .font(.system(size: 14, weight: .medium))
+                    .padding(.horizontal, 12).frame(height: 34)
+                    .overlay(Rectangle().stroke(.white.opacity(0.7)))
+            }.buttonStyle(.plain).padding(.horizontal, 18).frame(height: 48)
             VStack(spacing: 0) {
                 if !quick {
                     HStack(spacing: 0) {
                         ForEach(tabs.indices, id: \.self) { index in
-                            Button { tab = index } label: {
+                            Button {
+                                tab = index
+                                selectedRow = index == 1 ? "對焦操作" : "拍攝模式"
+                            } label: {
                                 Text(tabs[index]).font(.system(size: 13, weight: .bold))
                                     .frame(maxWidth: .infinity).padding(.vertical, 12)
-                                    .foregroundStyle(tab == index ? .black : colors[index])
-                                    .background(tab == index ? colors[index] : .black)
+                                    .foregroundColor(tab == index ? .black : colors[index])
+                                    .background(Rectangle().fill(tab == index ? colors[index] : .black))
                             }.buttonStyle(.plain)
                         }
                     }
@@ -39,13 +51,9 @@ struct CameraSettingsView: View {
                     .font(.system(size: 15, weight: .medium, design: .monospaced))
                 }
                 .background(.black)
-                .pickerStyle(.menu)
                 .tint(quick ? .yellow : colors[tab])
             }
-            .navigationTitle(quick ? "Q · 速控" : "MENU")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("返回拍攝") { dismiss() } } }
-        }.preferredColorScheme(.dark)
+        }.background(.black).foregroundStyle(.white).preferredColorScheme(.dark)
     }
     private var shooting: some View {
         Group {
@@ -60,39 +68,25 @@ struct CameraSettingsView: View {
                     Toggle("自動 ISO", isOn: setting(\.autoISO))
                 }
                 if camera.settings.controlsShutter {
-                    Picker("快門", selection: setting(\.shutterSeconds)) {
-                        ForEach(CameraSettings.shutterSpeeds, id: \.self) {
-                            Text(CameraSettings.shutterLabel($0)).tag($0)
-                        }
-                    }
+                    menuPicker("快門", values: CameraSettings.shutterSpeeds, selection: setting(\.shutterSeconds), title: CameraSettings.shutterLabel)
                     Text("超出鏡頭支援範圍時會限制至實際可用值；拍攝畫面顯示實測值。").font(.caption).foregroundStyle(.secondary)
                 }
                 if camera.settings.controlsISO {
-                    Picker("ISO", selection: setting(\.iso)) {
-                        ForEach(CameraSettings.isoValues, id: \.self) { Text("\(Int($0))").tag($0) }
-                    }
+                    menuPicker("ISO", values: CameraSettings.isoValues, selection: setting(\.iso), title: { "\(Int($0))" })
                 }
                 LabeledContent("曝光補償", value: String(format: "%+.1f EV", camera.settings.exposureBias))
                 Slider(value: setting(\.exposureBias), in: -3...3, step: 1.0/3)
                 Toggle("自動曝光鎖", isOn: Binding(get: { camera.exposureLocked }, set: { _ in camera.toggleExposureLock() }))
             }
             Section("影像與色彩") {
-                Picker("影像畫質", selection: setting(\.format)) {
-                    Text("HEIF").tag(PhotoFormat.heif)
-                    Text("JPEG").tag(PhotoFormat.jpeg)
-                    if camera.supportsRAW { Text("RAW＋JPEG").tag(PhotoFormat.raw) }
-                }
+                menuPicker("影像畫質", values: PhotoFormat.allCases.filter { camera.supportsRAW || $0 != .raw }, selection: setting(\.format), title: { $0.rawValue })
                 if !camera.supportsRAW { Text("目前鏡頭配置不支援 RAW。").font(.caption).foregroundStyle(.secondary) }
-                Picker("白平衡", selection: setting(\.whiteBalance)) {
-                    ForEach(WhiteBalance.allCases) { Text($0.rawValue).tag($0) }
-                }
+                menuPicker("白平衡", values: WhiteBalance.allCases, selection: setting(\.whiteBalance), title: { $0.rawValue })
                 if camera.settings.whiteBalance == .custom {
                     LabeledContent("色溫", value: "\(Int(camera.settings.kelvin)) K")
                     Slider(value: setting(\.kelvin), in: 2500...10000, step: 100)
                 }
-                Picker("相片風格 · 近似", selection: setting(\.style)) {
-                    ForEach(PictureStyle.allCases) { Text($0.rawValue).tag($0) }
-                }
+                menuPicker("相片風格 · 近似", values: PictureStyle.allCases, selection: setting(\.style), title: { $0.rawValue })
                 if !quick {
                     parameter("對比", \.contrast)
                     parameter("飽和度", \.saturation)
@@ -102,9 +96,7 @@ struct CameraSettingsView: View {
                 }
             }
             Section("驅動") {
-                Picker("拍攝模式", selection: setting(\.drive)) {
-                    ForEach(DriveMode.allCases) { Text($0.rawValue).tag($0) }
-                }
+                menuPicker("拍攝模式", values: DriveMode.allCases, selection: setting(\.drive), title: { $0.rawValue })
                 Toggle("鎖定目前鏡頭", isOn: setting(\.lockLens))
                 Text("連拍以裝置實際處理速度為準，不模擬 R6 III 的每秒張數。鎖鏡頭時縮放可能採用裁切。").font(.caption).foregroundStyle(.secondary)
             }
@@ -113,15 +105,9 @@ struct CameraSettingsView: View {
     private var autofocus: some View {
         Group {
             Section("自動對焦／主體追蹤") {
-                Picker("對焦操作", selection: setting(\.autofocus)) {
-                    ForEach(AutofocusMode.allCases) { Text($0.rawValue).tag($0) }
-                }
-                Picker("要偵測的主體", selection: setting(\.subjects)) {
-                    ForEach(SubjectMode.allCases) { Text($0.rawValue).tag($0) }
-                }
-                Picker("眼睛偵測", selection: setting(\.eyes)) {
-                    ForEach(EyePriority.allCases) { Text($0.rawValue).tag($0) }
-                }
+                menuPicker("對焦操作", values: AutofocusMode.allCases, selection: setting(\.autofocus), title: { $0.rawValue })
+                menuPicker("要偵測的主體", values: SubjectMode.allCases, selection: setting(\.subjects), title: { $0.rawValue })
+                menuPicker("眼睛偵測", values: EyePriority.allCases, selection: setting(\.eyes), title: { $0.rawValue })
                 Text("人物、狗／貓可偵測眼睛。鳥、馬與車輛使用主體框；無可靠眼睛位置時退回主體對焦。").font(.caption).foregroundStyle(.secondary)
                 Text("點選主體鎖定；失去目標後不自動跳到旁人，請點選重新鎖定。綠框表示鏡頭完成單次 AF 程序，並非眼部銳利度保證。").font(.caption).foregroundStyle(.secondary)
                 parameter("遮擋寬限（秒）", \.trackingStickiness, range: 0.2...2)
@@ -141,11 +127,7 @@ struct CameraSettingsView: View {
         Section("拍攝資訊顯示") {
             Toggle("格線", isOn: setting(\.grid))
             Toggle("亮度直方圖", isOn: setting(\.histogram))
-            Picker("拍後檢視", selection: setting(\.reviewSeconds)) {
-                Text("關閉").tag(0)
-                Text("2 秒").tag(2)
-                Text("4 秒").tag(4)
-            }
+            menuPicker("拍後檢視", values: [0, 2, 4], selection: setting(\.reviewSeconds), title: { $0 == 0 ? "關閉" : "\($0) 秒" })
             Text("直方圖以預覽影像計算。INFO 可切換資訊顯示。").font(.caption)
         }
     }
@@ -177,5 +159,30 @@ struct CameraSettingsView: View {
             LabeledContent(title, value: String(format: "%.1f", camera.settings[keyPath: path]))
             Slider(value: setting(path), in: range)
         }
+    }
+    private func menuPicker<T: Hashable>(_ name: String, values: [T], selection: Binding<T>, title: @escaping (T) -> String) -> some View {
+        let accent = colors[tab]
+        return Menu {
+            ForEach(values, id: \.self) { value in
+                Button {
+                    selectedRow = name
+                    selection.wrappedValue = value
+                } label: {
+                    if selection.wrappedValue == value { Label(title(value), systemImage: "checkmark") }
+                    else { Text(title(value)) }
+                }
+            }
+        } label: {
+            HStack {
+                Text(name).foregroundStyle(.white)
+                Spacer()
+                Text(title(selection.wrappedValue)).foregroundStyle(selectedRow == name ? accent : .white)
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.gray)
+            }
+            .padding(.horizontal, 12).frame(minHeight: 42)
+            .background(selectedRow == name ? accent.opacity(0.13) : Color(white: 0.055))
+            .overlay(Rectangle().stroke(selectedRow == name ? accent : Color(white: 0.2), lineWidth: selectedRow == name ? 2 : 1))
+        }
+        .buttonStyle(.plain).accessibilityIdentifier("menu.\(name)")
     }
 }

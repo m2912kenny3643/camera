@@ -41,7 +41,7 @@ struct CameraView: View {
         .overlay {
             if showingQuick { QuickControlView(camera: camera) { showingQuick = false } }
         }
-        .sheet(item: $panel) { item in
+        .fullScreenCover(item: $panel) { item in
             switch item {
             case .menu: CameraSettingsView(camera: camera, quick: false)
             case .playback: GalleryView(urls: camera.galleryURLs())
@@ -88,7 +88,7 @@ struct CameraView: View {
                     Image(decorative: frame, scale: 1)
                         .resizable().scaledToFill()
                         .frame(width: geometry.size.width, height: geometry.size.height)
-                        .scaleEffect(mfMagnification ? 3 : 1)
+                        .scaleEffect(mfMagnification && camera.settings.autofocus == .manual ? 3 : 1)
                         .opacity(camera.settings.peaking && camera.settings.autofocus == .manual ? 0.5 : 1)
                         .blendMode(camera.settings.peaking && camera.settings.autofocus == .manual ? .screen : .normal)
                         .allowsHitTesting(false)

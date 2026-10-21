@@ -22,6 +22,8 @@ final class CameraUITests: XCTestCase {
         app.buttons["MENU"].tap()
         XCTAssertTrue(app.buttons["AF"].waitForExistence(timeout: 5))
         app.buttons["AF"].tap()
+        XCTAssertTrue(app.buttons["menu.要偵測的主體"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["menu.眼睛偵測"].exists)
         capture("MENU-AF-landscape")
         XCUIDevice.shared.orientation = .portrait
     }
