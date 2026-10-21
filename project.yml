@@ -10,8 +10,8 @@ settings:
     TARGETED_DEVICE_FAMILY: "1"
     IPHONEOS_DEPLOYMENT_TARGET: "18.0"
     CODE_SIGNING_ALLOWED: NO
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "2"
 targets:
   R6Camera:
     type: application
@@ -23,12 +23,12 @@ targets:
       path: R6Camera/Info.plist
       properties:
         CFBundleDisplayName: R6 Camera
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSCameraUsageDescription: 使用相機拍攝照片、識別主體並持續對焦。
         NSPhotoLibraryAddUsageDescription: 將你拍攝的照片儲存到相簿。
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
-          - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UIRequiresFullScreen: true
     settings:

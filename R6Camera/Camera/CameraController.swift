@@ -30,6 +30,19 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     private var notificationTokens: [NSObjectProtocol] = []
     weak var previewLayer: AVCaptureVideoPreviewLayer?
 
+    @Published var fixedRotation: CGFloat = 0
+    @Published var uiFixture: UIImage?
+    @Published var remainingShots: Int?
+    @Published private var focalAtOne: CGFloat?
+    var isUIFixture: Bool {
+        #if targetEnvironment(simulator)
+        return ProcessInfo.processInfo.environment["R6_UI_TESTING"] == "1"
+        #else
+        return false
+        #endif
+    }
+    func equivalentFocalLength(at zoom: CGFloat) -> CGFloat? { focalAtOne.map { $0 * zoom } }
+
     @Published var settings: CameraSettings
     @Published var isRunning = false
     @Published var error: String?
@@ -56,25 +69,30 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
 
     override init() {
         settings = store.load() ?? CameraSettings()
+        if settings.autofocus == .single { settings.autofocus = .servo }
         super.init()
         UIDevice.current.isBatteryMonitoringEnabled = true
         vision.onFrame = { [weak self] result, aspect, histogram, styled in
             DispatchQueue.main.async {
                 guard let self else { return }
+                guard result.configuration == FocusConfiguration(self.settings) else { return }
                 self.tracking = result
                 self.frameAspect = aspect
                 self.histogram = histogram
-                if self.settings.autofocus == .servo {
-                    if result.missing { self.holdTrackedFocus() }
-                    else if let subject = result.selected {
-                        self.focusOnImagePoint(subject.focusPoint(self.settings.eyes), single: false)
-                    } else { self.resumeSearchIfNeeded() }
+                guard self.settings.autofocus != .manual else { return }
+                switch result.focusAction {
+                case .continuous(let point): self.focusOnImagePoint(point, single: false)
+                case .single(let point): self.focusOnImagePoint(point, single: true, force: true)
+                case .hold: self.holdTrackedFocus()
+                case .none: break
                 }
             }
         }
         vision.onPreview = { [weak self] image in
             // Hold the render slot until displayed, so a busy main queue cannot accumulate frames.
-            DispatchQueue.main.sync {
+            // Acknowledgement retains the bounded render slot until the main queue consumes it.
+            DispatchQueue.main.async {
+                defer { self?.vision.finishPreview() }
                 guard let self, self.isRunning else { return }
                 self.styledFrame = image
             }
@@ -105,9 +123,33 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         captureTask?.cancel()
     }
 
+    private var fixtureTracker = SubjectTracker()
+    private var fixtureDetections: [SubjectDetection] {
+        [SubjectDetection(kind: .person, bounds: CGRect(x: 0.35, y: 0.2, width: 0.2, height: 0.6), confidence: 0.9,
+                          leftEye: CGPoint(x: 0.42, y: 0.28), headBounds: CGRect(x: 0.38, y: 0.22, width: 0.12, height: 0.15))]
+    }
+    private func prepareUIFixture() {
+        guard uiFixture == nil else { return }
+        settings = CameraSettings(); settings.program = .manual; settings.grid = false
+        settings.histogram = false; settings.shutterSeconds = 1.0 / 1000; settings.iso = 400
+        actualShutter = settings.shutterSeconds; actualISO = 400; battery = 0.8
+        frameAspect = 4.0 / 3; focalAtOne = nil
+        let size = CGSize(width: 1200, height: 900)
+        uiFixture = UIGraphicsImageRenderer(size: size).image { c in
+            UIColor(red: 0.24, green: 0.32, blue: 0.28, alpha: 1).setFill(); c.fill(CGRect(origin: .zero, size: size))
+            UIColor(red: 0.3, green: 0.38, blue: 0.32, alpha: 1).setFill(); c.fill(CGRect(x: 0, y: 470, width: 1200, height: 430))
+            UIColor(red: 0.42, green: 0.51, blue: 0.48, alpha: 1).setFill(); c.fill(CGRect(x: 420, y: 180, width: 240, height: 540))
+            UIColor(red: 0.63, green: 0.59, blue: 0.48, alpha: 1).setFill(); c.cgContext.fillEllipse(in: CGRect(x: 456, y: 198, width: 144, height: 135))
+        }
+        tracking = fixtureTracker.update(fixtureDetections, at: 0, settings: settings)
+    }
+
     func start() {
         #if targetEnvironment(simulator)
-        DispatchQueue.main.async { self.status = "模擬器 UI 檢視 · 未啟動鏡頭" }
+        DispatchQueue.main.async {
+            self.status = "模擬器 UI 檢視 · 未啟動鏡頭"
+            if self.isUIFixture { self.prepareUIFixture() }
+        }
         #else
         Task { @MainActor in
             let allowed: Bool
@@ -178,25 +220,28 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
         videoOutput.alwaysDiscardsLateVideoFrames = true
         videoOutput.setSampleBufferDelegate(vision, queue: vision.captureQueue)
-        if let connection = videoOutput.connection(with: .video), connection.isVideoRotationAngleSupported(90) {
-            connection.videoRotationAngle = 90
+        let rotation = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
+        var angle: CGFloat = 0
+        if #available(iOS 27.0, *) {
+            angle = rotation.videoRotationAngleRelative(toDeviceOrientation: .landscapeRight)
         }
+        for output in [videoOutput as AVCaptureOutput, photoOutput as AVCaptureOutput] {
+            if let connection = output.connection(with: .video) {
+                if #available(iOS 27.0, *) {
+                    if connection.isVideoRotationAngleSupported(angle) { connection.videoRotationAngle = angle }
+                } else if connection.isVideoOrientationSupported { connection.videoOrientation = .landscapeRight }
+            }
+        }
+        let fixedAngle = angle
+        DispatchQueue.main.async { self.fixedRotation = fixedAngle }
         photoOutput.maxPhotoQualityPrioritization = .quality
         if let dimensions = device.activeFormat.supportedMaxPhotoDimensions.max(by: {
             Int64($0.width) * Int64($0.height) < Int64($1.width) * Int64($1.height)
         }) { photoOutput.maxPhotoDimensions = dimensions }
         if photoOutput.isResponsiveCaptureSupported { photoOutput.isResponsiveCaptureEnabled = true }
         if photoOutput.isZeroShutterLagSupported { photoOutput.isZeroShutterLagEnabled = true }
-        let nativeZoom: Bool
-        if session.supportsControls {
-            let control = AVCaptureSystemZoomSlider(device: device) { [weak self] value in
-                guard let self else { return }
-                self.syncNativeZoom(value / self.referenceZoom)
-            }
-            nativeZoom = session.canAddControl(control)
-            if nativeZoom { session.addControl(control) }
-            session.setControlsDelegate(self, queue: sessionQueue)
-        } else { nativeZoom = false }
+        // No AVCaptureControl is registered: hardware light-press/slide must not alter zoom.
+        let nativeZoom = false
         observations = [
             device.observe(\.videoZoomFactor, options: [.initial, .new]) { [weak self] device, _ in
                 DispatchQueue.main.async {
@@ -240,7 +285,12 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
 
     /// UI mutations are persisted once and sent as immutable snapshots to serial owners.
     func update(_ transform: (inout CameraSettings) -> Void) {
+        let previous = settings
         transform(&settings)
+        if settings.autofocus == .single { settings.autofocus = .servo }
+        if previous.autofocus != settings.autofocus || previous.subjects != settings.subjects {
+            holdTrackedFocus()
+        }
         store.save(settings)
         let snapshot = settings
         vision.configure(snapshot)
@@ -260,9 +310,8 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             if device.isLockingFocusWithCustomLensPositionSupported {
                 device.setFocusModeLocked(lensPosition: settings.manualFocus, completionHandler: nil)
             }
-        } else if !trackingFocusSuspended && (changedAF || !focusLocked) {
-            let mode: AVCaptureDevice.FocusMode = settings.autofocus == .servo ? .continuousAutoFocus : .autoFocus
-            if device.isFocusModeSupported(mode) { device.focusMode = mode }
+        } else if changedAF || !focusLocked {
+            if device.isFocusModeSupported(.locked) { device.focusMode = .locked }
         }
         if settings.requiresExactExposure {
             let seconds = settings.controlsShutter ? settings.shutterSeconds : device.exposureDuration.seconds
@@ -324,12 +373,18 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             self.actualShutter = device.exposureDuration.seconds
             self.aperture = device.lensAperture
             self.pendingPhotos = count
+            let fov = Double(device.activeFormat.videoFieldOfView) * .pi / 180
+            let dimensions = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
+            let aspect = Double(dimensions.width) / Double(max(1, dimensions.height))
+            let diagonal = 2 * tan(fov / 2) * sqrt(1 + 1 / (aspect * aspect))
+            if diagonal > 0 { self.focalAtOne = CGFloat(43.2666 / diagonal) * self.referenceZoom }
         }
     }
     func setZoom(_ zoom: CGFloat) {
         let factor = min(zoomRange.upperBound, max(zoomRange.lowerBound, zoom))
         settings.zoom = factor
         store.save(settings)
+        if isUIFixture { self.zoom = factor }
         sessionQueue.async {
             guard let device = self.device else { return }
             do {
@@ -347,45 +402,19 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             store.save(settings)
         }
     }
-    func rotate(to angle: CGFloat) {
-        guard let connection = previewLayer?.connection else { return }
-        if connection.isVideoRotationAngleSupported(angle) { connection.videoRotationAngle = angle }
-        vision.reset()
-        sessionQueue.async {
-            for output in [self.videoOutput as AVCaptureOutput, self.photoOutput as AVCaptureOutput] {
-                if let connection = output.connection(with: .video), connection.isVideoRotationAngleSupported(angle) {
-                    connection.videoRotationAngle = angle
-                }
-            }
-            self.lastFocusPoint = CGPoint(x: -1, y: -1)
-        }
-    }
     func tap(at imagePoint: CGPoint) {
-        vision.select(imagePoint)
-        singleFocused = false
-        let subject = tracking.candidates.filter { $0.bounds.contains(imagePoint) }
-            .min { $0.bounds.area < $1.bounds.area }
-        if let subject, settings.eyes != .off {
-            let leftDistance = subject.leftEye.map { hypot($0.x - imagePoint.x, $0.y - imagePoint.y) } ?? .infinity
-            let rightDistance = subject.rightEye.map { hypot($0.x - imagePoint.x, $0.y - imagePoint.y) } ?? .infinity
-            if min(leftDistance, rightDistance) < 0.05 {
-                update { $0.eyes = leftDistance < rightDistance ? .left : .right }
-            }
-        }
-        let target = subject?.focusPoint(settings.eyes) ?? imagePoint
-        focusOnImagePoint(target, single: settings.autofocus == .single, force: true)
-    }
-    func autofocus() {
         guard settings.autofocus != .manual else { return }
         singleFocused = false
-        let point = tracking.selected?.focusPoint(settings.eyes) ?? CGPoint(x: 0.5, y: 0.5)
-        focusOnImagePoint(point, single: true, force: true)
+        if isUIFixture {
+            fixtureTracker.select(at: imagePoint, eyes: settings.eyes)
+            tracking = fixtureTracker.result
+        } else { vision.select(imagePoint) }
     }
+    func autofocus() { tap(at: CGPoint(x: 0.5, y: 0.5)) }
     func unlockTracking() {
-        vision.unlock()
+        if isUIFixture { fixtureTracker.unlock(); _ = fixtureTracker.update(fixtureDetections, at: 1, settings: settings); tracking = fixtureTracker.result }
+        else { vision.unlock() }
         singleFocused = false
-        sessionQueue.async { self.focusLocked = false; self.lastFocusPoint = CGPoint(x: -1, y: -1) }
-        resumeSearchIfNeeded()
     }
     private func holdTrackedFocus() {
         sessionQueue.async {
@@ -399,21 +428,6 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                 } else if device.isFocusModeSupported(.locked) {
                     device.focusMode = .locked
                     self.trackingFocusSuspended = true
-                }
-            } catch { self.report(error) }
-        }
-    }
-    private func resumeSearchIfNeeded() {
-        sessionQueue.async {
-            guard self.trackingFocusSuspended, self.appliedSettings.autofocus == .servo, let device = self.device else { return }
-            do {
-                try device.lockForConfiguration()
-                defer { device.unlockForConfiguration() }
-                if device.isFocusModeSupported(.continuousAutoFocus) {
-                    device.focusMode = .continuousAutoFocus
-                    self.trackingFocusSuspended = false
-                    self.lastFocusPoint = CGPoint(x: -1, y: -1)
-                    self.lastTrackedLensPosition = nil
                 }
             } catch { self.report(error) }
         }
@@ -436,7 +450,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                     self.trackingFocusSuspended = false
                     self.lastFocusPoint = devicePoint
                 }
-                self.focusLocked = single
+                self.focusLocked = true
                 self.sawFocusAdjustment = false
                 if !self.appliedExposureLock && !self.appliedSettings.requiresExactExposure,
                    device.isExposurePointOfInterestSupported {
@@ -472,14 +486,6 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             }
             guard !Task.isCancelled else { return }
             self.countdown = 0
-            if snapshot.autofocus == .single {
-                self.autofocus()
-                // A direct full press has no half-press preparation stage. Give lens AF a bounded opportunity.
-                for _ in 0..<12 {
-                    do { try await Task.sleep(nanoseconds: 60_000_000) } catch { return }
-                    if self.singleFocused { break }
-                }
-            }
             guard !Task.isCancelled else { return }
             self.capture(snapshot)
         }

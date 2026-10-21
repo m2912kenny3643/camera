@@ -30,12 +30,27 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         queue.async {
             if self.settings.subjects != settings.subjects || self.settings.autofocus != settings.autofocus {
                 self.tracker.reset()
+                self.settings = settings
+                var cleared = self.tracker.result
+                cleared.focusAction = .hold
+                self.publish(cleared, aspect: max(self.lastAspect, 1), histogram: [])
             }
             self.settings = settings
         }
     }
-    func select(_ point: CGPoint) { queue.async { self.tracker.select(at: point) } }
-    func unlock() { queue.async { self.tracker.unlock() } }
+    func select(_ point: CGPoint) {
+        queue.async {
+            guard self.settings.autofocus != .manual else { return }
+            self.tracker.select(at: point, eyes: self.settings.eyes)
+            self.publish(self.tracker.result, aspect: max(self.lastAspect, 1), histogram: [])
+        }
+    }
+    func unlock() {
+        queue.async {
+            self.tracker.unlock()
+            self.publish(self.tracker.result, aspect: max(self.lastAspect, 1), histogram: [])
+        }
+    }
     func reset() { queue.async { self.tracker.reset(); self.lastAspect = 0 } }
     func loadModel() {
         queue.async {
@@ -59,7 +74,6 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         // Both paths drop frames while busy. Inference never blocks the visible preview.
         if renderSlot.wait(timeout: .now()) == .success {
             renderQueue.async {
-                defer { self.renderSlot.signal() }
                 self.renderPreview(buffer, settings: snapshot)
             }
         }
@@ -104,8 +118,14 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         let scale = min(1, 960 / original.extent.width)
         let image = original.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         let histogram = settings.histogram ? luminanceHistogram(image) : []
-        onFrame?(result, aspect, histogram, nil)
+        publish(result, aspect: aspect, histogram: histogram)
     }
+    private func publish(_ result: TrackingResult, aspect: CGFloat, histogram: [Float]) {
+        var snapshot = result
+        snapshot.configuration = FocusConfiguration(settings)
+        onFrame?(snapshot, aspect, histogram, nil)
+    }
+    func finishPreview() { renderSlot.signal() }
     private func renderPreview(_ buffer: CVPixelBuffer, settings: CameraSettings) {
         let original = CIImage(cvPixelBuffer: buffer)
         let scale = min(1, 960 / original.extent.width)
@@ -117,7 +137,9 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         } else {
             rendered = PhotoRenderer.applyStyle(image, settings: settings)
         }
-        if let preview = renderContext.createCGImage(rendered, from: image.extent) { onPreview?(preview) }
+        if let preview = renderContext.createCGImage(rendered, from: image.extent), let onPreview {
+            onPreview(preview)
+        } else { finishPreview() }
     }
     private func addHumanEyes(_ handler: VNImageRequestHandler, to detections: inout [SubjectDetection]) throws {
         let request = VNDetectFaceLandmarksRequest()
@@ -140,9 +162,10 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             if let index {
                 detections[index].leftEye = left
                 detections[index].rightEye = right
+                detections[index].headBounds = bounds
             } else {
                 detections.append(SubjectDetection(kind: .person, bounds: bounds, confidence: face.confidence,
-                                                   leftEye: left, rightEye: right))
+                                                   leftEye: left, rightEye: right, headBounds: bounds))
             }
         }
     }
@@ -156,12 +179,20 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 return CGPoint(x: point.location.x, y: 1 - point.location.y)
             }
             let left = eye(.leftEye), right = eye(.rightEye)
-            guard let anchor = left ?? right else { continue }
+            guard let anchor = left ?? right ?? eye(.nose) ?? eye(.leftEarTop) ?? eye(.rightEarTop) else { continue }
             guard let index = detections.indices.filter({
                 (detections[$0].kind == .cat || detections[$0].kind == .dog) && detections[$0].bounds.contains(anchor)
             }).min(by: { detections[$0].bounds.area < detections[$1].bounds.area }) else { continue }
             detections[index].leftEye = left
             detections[index].rightEye = right
+            let headNames: [VNAnimalBodyPoseObservation.JointName] = [.leftEye, .rightEye, .nose,
+                .leftEarTop, .leftEarMiddle, .leftEarBottom, .rightEarTop, .rightEarMiddle, .rightEarBottom]
+            let points = headNames.compactMap { eye($0) }.filter { detections[index].bounds.contains($0) }
+            if points.count >= 3, let minX = points.map(\.x).min(), let maxX = points.map(\.x).max(),
+               let minY = points.map(\.y).min(), let maxY = points.map(\.y).max(), maxX - minX > 0.01, maxY - minY > 0.01 {
+                // Envelope of actual high-confidence landmarks, not a guessed head proportion.
+                detections[index].headBounds = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+            }
         }
     }
     private func luminanceHistogram(_ image: CIImage) -> [Float] {

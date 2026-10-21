@@ -83,6 +83,14 @@ struct CameraSettings: Codable, Equatable {
     }
     var controlsISO: Bool { program == .manual || (program == .flexible && !autoISO) }
     var requiresExactExposure: Bool { controlsShutter || controlsISO }
+    mutating func useAutomaticShutter() {
+        let keepISOAutomatic = !controlsISO
+        program = .flexible; autoShutter = true; autoISO = keepISOAutomatic
+    }
+    mutating func useAutomaticISO() {
+        let keepShutterAutomatic = !controlsShutter
+        program = .flexible; autoISO = true; autoShutter = keepShutterAutomatic
+    }
     var shutterLabel: String {
         Self.shutterLabel(shutterSeconds)
     }

@@ -54,7 +54,7 @@ jobs:
             build/R6Camera-unsigned.ipa
             build/model-provenance.json
           if-no-files-found: error
-      - name: Test portrait and landscape interface
+      - name: Test fixed landscape and secondary menus
         timeout-minutes: 12
         run: |
           set -euo pipefail

@@ -2,187 +2,113 @@ import SwiftUI
 
 struct CameraSettingsView: View {
     @ObservedObject var camera: CameraController
-    let quick: Bool
     @Environment(\.dismiss) private var dismiss
     @State private var tab = 0
-    @State private var selectedRow = "拍攝模式"
-    private let tabs = ["拍攝", "AF", "顯示", "設定", "我的選單"]
-    private let colors: [Color] = [.red, .purple, .yellow, .orange, .green]
-
-    private func setting<T>(_ keyPath: WritableKeyPath<CameraSettings, T>) -> Binding<T> {
-        Binding(get: { camera.settings[keyPath: keyPath] }, set: { value in camera.update { $0[keyPath: keyPath] = value } })
+    @State private var page = 0
+    @State private var editor: CameraControl?
+    @State private var selected = ""
+    @State private var resetPrompt = false
+    private let names = ["拍攝", "AF", "播放", "設定", "自訂", "我的選單"]
+    private let symbols = ["camera.fill", "AF", "play.rectangle", "wrench.fill", "camera.badge.ellipsis", "star.fill"]
+    private let colors: [Color] = [.red, .purple, .blue, .yellow, .orange, .green]
+    private var pages: [[CameraControl]] {
+        switch tab {
+        case 0: return [[.format, .whiteBalance, .style, .drive, .exposure], [.mode, .shutter, .iso, .kelvin, .lens], [.contrast, .saturation, .sharpness, .hue]]
+        case 1: return [[.autofocus, .subject, .eye, .stickiness, .sensitivity], [.manualFocus]]
+        case 2: return [[.review]]
+        default: return [[]]
+        }
     }
+    private var safePage: Int { min(page, pages.count - 1) }
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("MENU").font(.system(size: 20, weight: .bold, design: .monospaced))
-                Spacer()
-                Button("返回拍攝") { dismiss() }
-                    .font(.system(size: 14, weight: .medium))
-                    .padding(.horizontal, 12).frame(height: 34)
-                    .overlay(Rectangle().stroke(.white.opacity(0.7)))
-            }.buttonStyle(.plain).padding(.horizontal, 18).frame(height: 48)
+        GeometryReader { g in
             VStack(spacing: 0) {
-                if !quick {
-                    HStack(spacing: 0) {
-                        ForEach(tabs.indices, id: \.self) { index in
-                            Button {
-                                tab = index
-                                selectedRow = index == 1 ? "對焦操作" : "拍攝模式"
-                            } label: {
-                                Text(tabs[index]).font(.system(size: 13, weight: .bold))
-                                    .frame(maxWidth: .infinity).padding(.vertical, 12)
-                                    .foregroundColor(tab == index ? .black : colors[index])
-                                    .background(Rectangle().fill(tab == index ? colors[index] : .black))
-                            }.buttonStyle(.plain)
-                        }
+                HStack(spacing: 0) {
+                    ForEach(names.indices, id: \.self) { index in
+                        Button { tab = index; page = 0; selected = "" } label: {
+                            Group {
+                                if index == 1 { Text("AF").font(.system(size: 19, weight: .bold)) }
+                                else { Image(systemName: symbols[index]).font(.system(size: 20)) }
+                            }.frame(width: 64, height: 36)
+                                .foregroundStyle(tab == index ? Color.black : colors[index])
+                                .background(tab == index ? colors[index] : .black)
+                        }.accessibilityLabel(names[index]).accessibilityIdentifier("menu.tab.\(index)")
                     }
-                }
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        if quick || tab == 0 { shooting }
-                        if quick || tab == 1 { autofocus }
-                        if !quick && tab == 2 { display }
-                        if !quick && tab == 3 { system }
-                        if !quick && tab == 4 { presets }
-                    }
-                    .padding(18)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .font(.system(size: 15, weight: .medium, design: .monospaced))
-                }
-                .background(.black)
-                .tint(quick ? .yellow : colors[tab])
-            }
-        }.background(.black).foregroundStyle(.white).preferredColorScheme(.dark)
-    }
-    private var shooting: some View {
-        Group {
-            Section("曝光") {
-                Picker("拍攝模式", selection: setting(\.program)) {
-                    ForEach(ExposureProgram.allCases) { Text($0.rawValue).tag($0) }
-                }.pickerStyle(.segmented)
-                LabeledContent("Av · 光圈先決", value: String(format: "F%.1f 固定", camera.aperture)).foregroundStyle(.gray)
-                Text("此鏡頭無可變光圈；Av 不提供實體光圈控制。").font(.caption).foregroundStyle(.secondary)
-                if camera.settings.program == .flexible {
-                    Toggle("自動快門", isOn: setting(\.autoShutter))
-                    Toggle("自動 ISO", isOn: setting(\.autoISO))
-                }
-                if camera.settings.controlsShutter {
-                    menuPicker("快門", values: CameraSettings.shutterSpeeds, selection: setting(\.shutterSeconds), title: CameraSettings.shutterLabel)
-                    Text("超出鏡頭支援範圍時會限制至實際可用值；拍攝畫面顯示實測值。").font(.caption).foregroundStyle(.secondary)
-                }
-                if camera.settings.controlsISO {
-                    menuPicker("ISO", values: CameraSettings.isoValues, selection: setting(\.iso), title: { "\(Int($0))" })
-                }
-                LabeledContent("曝光補償", value: String(format: "%+.1f EV", camera.settings.exposureBias))
-                Slider(value: setting(\.exposureBias), in: -3...3, step: 1.0/3)
-                Toggle("自動曝光鎖", isOn: Binding(get: { camera.exposureLocked }, set: { _ in camera.toggleExposureLock() }))
-            }
-            Section("影像與色彩") {
-                menuPicker("影像畫質", values: PhotoFormat.allCases.filter { camera.supportsRAW || $0 != .raw }, selection: setting(\.format), title: { $0.rawValue })
-                if !camera.supportsRAW { Text("目前鏡頭配置不支援 RAW。").font(.caption).foregroundStyle(.secondary) }
-                menuPicker("白平衡", values: WhiteBalance.allCases, selection: setting(\.whiteBalance), title: { $0.rawValue })
-                if camera.settings.whiteBalance == .custom {
-                    LabeledContent("色溫", value: "\(Int(camera.settings.kelvin)) K")
-                    Slider(value: setting(\.kelvin), in: 2500...10000, step: 100)
-                }
-                menuPicker("相片風格 · 近似", values: PictureStyle.allCases, selection: setting(\.style), title: { $0.rawValue })
-                if !quick {
-                    parameter("對比", \.contrast)
-                    parameter("飽和度", \.saturation)
-                    parameter("銳利度", \.sharpness, range: 0...4)
-                    parameter("色調", \.hue)
-                    Text("風格是自行調校的近似效果；RAW 不套用風格。").font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            Section("驅動") {
-                menuPicker("拍攝模式", values: DriveMode.allCases, selection: setting(\.drive), title: { $0.rawValue })
-                Toggle("鎖定目前鏡頭", isOn: setting(\.lockLens))
-                Text("連拍以裝置實際處理速度為準，不模擬 R6 III 的每秒張數。鎖鏡頭時縮放可能採用裁切。").font(.caption).foregroundStyle(.secondary)
-            }
-        }
-    }
-    private var autofocus: some View {
-        Group {
-            Section("自動對焦／主體追蹤") {
-                menuPicker("對焦操作", values: AutofocusMode.allCases, selection: setting(\.autofocus), title: { $0.rawValue })
-                menuPicker("要偵測的主體", values: SubjectMode.allCases, selection: setting(\.subjects), title: { $0.rawValue })
-                menuPicker("眼睛偵測", values: EyePriority.allCases, selection: setting(\.eyes), title: { $0.rawValue })
-                Text("人物、狗／貓可偵測眼睛。鳥、馬與車輛使用主體框；無可靠眼睛位置時退回主體對焦。").font(.caption).foregroundStyle(.secondary)
-                Text("點選主體鎖定；失去目標後不自動跳到旁人，請點選重新鎖定。綠框表示鏡頭完成單次 AF 程序，並非眼部銳利度保證。").font(.caption).foregroundStyle(.secondary)
-                parameter("遮擋寬限（秒）", \.trackingStickiness, range: 0.2...2)
-                parameter("主體切換靈敏度", \.switchSensitivity, range: 0...1)
-                Button("解除追蹤鎖定") { camera.unlockTracking() }
-            }
-            if camera.settings.autofocus == .manual {
-                Section("手動對焦") {
-                    Slider(value: setting(\.manualFocus), in: 0...1)
-                    Toggle("峰值邊緣輔助", isOn: setting(\.peaking))
-                    Text("拍攝畫面右下角可切換 3× 顯示放大；不影響成片。").font(.caption).foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-    private var display: some View {
-        Section("拍攝資訊顯示") {
-            Toggle("格線", isOn: setting(\.grid))
-            Toggle("亮度直方圖", isOn: setting(\.histogram))
-            menuPicker("拍後檢視", values: [0, 2, 4], selection: setting(\.reviewSeconds), title: { $0 == 0 ? "關閉" : "\($0) 秒" })
-            Text("直方圖以預覽影像計算。INFO 可切換資訊顯示。").font(.caption)
-        }
-    }
-    private var system: some View {
-        Section("iPhone 拍攝操作") {
-            LabeledContent("原生縮放", value: camera.supportsNativeZoom ? "可用" : "未啟用／不支援")
-            Text("實體相機鍵放開拍照，連拍模式按住連拍。相機鍵半按事件尚無已驗證的公開 API，請使用 AF-ON 或點選對焦。").font(.caption)
-            Text("照片先存 App，再加入相簿；未允許相簿權限時仍可由回放分享。RAW 與 JPEG 成對保存。").font(.caption)
-            Button("開啟 iPhone 設定") {
-                if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
-            }
-            Button("重設拍攝設定", role: .destructive) { camera.update { $0 = CameraSettings() }; camera.setZoom(1) }
-        }
-    }
-    private var presets: some View {
-        Section("自訂拍攝模式") {
-            ForEach(["C1", "C2", "C3"], id: \.self) { name in
-                HStack {
-                    Text(name)
                     Spacer()
-                    Button("載入") { camera.recallPreset(name) }
-                    Button("儲存目前設定") { camera.savePreset(name) }
-                }.buttonStyle(.borderless)
-            }
-        }
-    }
-    private func parameter(_ title: String, _ path: WritableKeyPath<CameraSettings, Double>, range: ClosedRange<Double> = -4...4) -> some View {
-        VStack(alignment: .leading) {
-            LabeledContent(title, value: String(format: "%.1f", camera.settings[keyPath: path]))
-            Slider(value: setting(path), in: range)
-        }
-    }
-    private func menuPicker<T: Hashable>(_ name: String, values: [T], selection: Binding<T>, title: @escaping (T) -> String) -> some View {
-        let accent = colors[tab]
-        return Menu {
-            ForEach(values, id: \.self) { value in
-                Button {
-                    selectedRow = name
-                    selection.wrappedValue = value
-                } label: {
-                    if selection.wrappedValue == value { Label(title(value), systemImage: "checkmark") }
-                    else { Text(title(value)) }
+                    Text("MENU").font(.system(size: 14, weight: .bold)).foregroundStyle(.gray)
                 }
+                Rectangle().fill(colors[tab]).frame(height: 2)
+                HStack(spacing: 5) {
+                    ForEach(pages.indices, id: \.self) { index in
+                        Button("\(index + 1)") { page = index; selected = "" }.frame(width: 26, height: 23)
+                            .background(safePage == index ? colors[tab].opacity(0.75) : .black)
+                    }
+                    Spacer()
+                    Text(names[tab]).font(.system(size: 12))
+                    Text("\(safePage + 1)/\(pages.count)").font(.system(size: 12)).frame(width: 43)
+                }.padding(.vertical, 4)
+                ScrollView {
+                    VStack(spacing: 2) {
+                        ForEach(pages[safePage]) { control in
+                            menuRow(control.rawValue, value: control.value(camera.settings)) { selected = control.rawValue; editor = control }
+                                .accessibilityIdentifier("menu.\(control.rawValue)")
+                        }
+                        if tab == 1 {
+                            Text("觸控前白框待選；識別主體觸控後藍框追焦，空白處單次對焦。").font(.system(size: 10)).foregroundStyle(.gray).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
+                            Text("鳥眼／鳥頭模型尚未通過授權與準確度驗收；目前鳥類僅身體辨識。").font(.system(size: 10)).foregroundStyle(.gray).frame(maxWidth: .infinity, alignment: .leading)
+                            if safePage == 1 { toggleRow("峰值邊緣輔助", path: \.peaking) }
+                            menuRow("解除觸控對焦", value: "清除") { camera.unlockTracking() }
+                        }
+                        if tab == 3 {
+                            toggleRow("格線", path: \.grid)
+                            toggleRow("亮度直方圖", path: \.histogram)
+                            menuRow("螢幕方向", value: "橫向 · 相機鍵朝上") {}
+                            menuRow("相機鍵", value: "快門；不使用輕按／滑動") {}
+                            menuRow("重設拍攝設定", value: "SET") { resetPrompt = true }
+                            menuRow("iPhone 權限設定", value: "開啟") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
+                        }
+                        if tab == 4 || tab == 5 {
+                            ForEach(["C1", "C2", "C3"], id: \.self) { name in
+                                HStack(spacing: 3) {
+                                    menuRow(name, value: "載入") { camera.recallPreset(name) }
+                                    Button("儲存目前設定") { camera.savePreset(name) }.font(.system(size: 12)).frame(width: 125, height: 31).background(Color(white: 0.15))
+                                }
+                            }
+                            Text(camera.status).font(.system(size: 11)).foregroundStyle(.gray)
+                        }
+                    }.padding(.vertical, 5)
+                }
+                HStack {
+                    Button("MENU  返回") { dismiss() }.accessibilityIdentifier("menu.close")
+                    Spacer()
+                    Text("輕點項目設定").foregroundStyle(.gray).font(.system(size: 10))
+                    Text("SET  確認").font(.system(size: 12))
+                }.font(.system(size: 12)).frame(height: 31)
+            }.padding(.horizontal, max(16, g.size.width * 0.06)).padding(.vertical, 8)
+                .background(.black).foregroundStyle(.white).buttonStyle(.plain)
+                .overlay {
+                    if let editor {
+                        Color.black.opacity(0.5).onTapGesture { self.editor = nil }
+                        CameraControlEditor(camera: camera, control: editor) { self.editor = nil }.frame(width: min(610, g.size.width - 90), height: min(300, g.size.height - 30))
+                    }
+                }
+        }.preferredColorScheme(.dark)
+            .confirmationDialog("重設所有拍攝設定？", isPresented: $resetPrompt) {
+                Button("重設", role: .destructive) { camera.update { $0 = CameraSettings() }; camera.setZoom(1); camera.unlockTracking() }
             }
-        } label: {
-            HStack {
-                Text(name).foregroundStyle(.white)
-                Spacer()
-                Text(title(selection.wrappedValue)).foregroundStyle(selectedRow == name ? accent : .white)
-                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.gray)
-            }
-            .padding(.horizontal, 12).frame(minHeight: 42)
-            .background(selectedRow == name ? accent.opacity(0.13) : Color(white: 0.055))
-            .overlay(Rectangle().stroke(selectedRow == name ? accent : Color(white: 0.2), lineWidth: selectedRow == name ? 2 : 1))
+    }
+    private func menuRow(_ title: String, value: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 0) {
+                Text(title).frame(maxWidth: .infinity, alignment: .leading)
+                Rectangle().fill(.white.opacity(0.2)).frame(width: 1)
+                Text(value).frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 12)
+            }.font(.system(size: 14, weight: .medium)).padding(.horizontal, 12).frame(height: 31)
+                .background(Color(white: selected == title ? 0.05 : 0.115))
+                .overlay(Rectangle().stroke(selected == title ? colors[tab] : .clear, lineWidth: 2))
         }
-        .buttonStyle(.plain).accessibilityIdentifier("menu.\(name)")
+    }
+    private func toggleRow(_ title: String, path: WritableKeyPath<CameraSettings, Bool>) -> some View {
+        menuRow(title, value: camera.settings[keyPath: path] ? "開啟" : "關閉") { camera.update { $0[keyPath: path].toggle() } }
     }
 }

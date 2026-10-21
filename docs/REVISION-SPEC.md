@@ -1,0 +1,13 @@
+# R6 Camera revision — approved 2026-10-22
+
+Source: user conversation and scheduled execution at 01:10 Asia/Taipei.
+
+- Fixed landscape with Camera Control on the upper right; Dynamic Island left, USB-C right. UIInterfaceOrientationLandscapeRight. All pages stay landscape.
+- Latest focus rule overrides the earlier always-servo plan. Before touch, recognize candidates and draw at most one WHITE box; do not drive lens AF. Touch an identified subject: one BLUE box and continuous lens AF, eye → observed head → body. Touch elsewhere: fixed BLUE square and exactly one single AF operation. New detections must not activate tracking from point mode. Unlock or lost target returns to white candidate mode without servo. Short occlusion preserves locked target/distance for 0.8s; no jump to bystanders.
+- Camera Control is shutter only, full down captures once; burst down starts/up stops. No half-press or hardware slide controls. No extra on-screen giant shutter.
+- Main HUD/secondary controls follow manual, not invented image glyphs. White balance/style/meter/subject on right; mode/AF/quality/drive on left. No fictitious card, accessory or resolution capabilities. Secondary menus must use their documented editor family; see research/canon-ui-reference.md.
+- Visual references: design/approved-zoom.png (approved partial circular right wheel), design/candidate-hud.png (latest candidate-state sketch), design/screen-map.png (Q/MENU/playback). PDF controls/semantics override generated artwork. Wheel disk/ticks/text share one hub offscreen right. No complete semicircle; widest intrusion approximately 15% of view width. Use deterministic vector drawing, not generated raster icons.
+- Preserve P/Tv/M/Fv/A+, actual fixed aperture, supported formats, styles, WB, MF/peaking/magnification, grid/histogram, presets, timer/burst, local-first saves and gallery. Settings retain compatibility. Single AF is a touch-point action rather than a permanent AF-operation choice.
+- Bird eye/head detection is required for full completion. Existing YOLO bird boxes do not satisfy this. No fabricated eye location. No licensed/validated deployable bird-eye model has yet been established: see research/bird-eye-feasibility.md. Complete independent work and label remaining blocker honestly.
+- Verify core focus actions, one-region fallback, geometry, UI interactions/screenshots, packaging, native device archive. Actual hardware keys/AF/rotation/performance require physical iPhone17/iOS27 acceptance and must not be claimed tested via simulator.
+- Deliver code, CI results, unsigned re-signable IPA and actual UI captures. Never upload the manual PDF.

@@ -36,6 +36,7 @@ struct SubjectDetection: Identifiable {
     /// Anatomical left/right, not screen left/right. Only actual detected eyes are populated.
     var leftEye: CGPoint?
     var rightEye: CGPoint?
+    var headBounds: CGRect?
     func eye(_ priority: EyePriority) -> CGPoint? {
         switch priority {
         case .off: return nil
@@ -45,7 +46,28 @@ struct SubjectDetection: Identifiable {
         }
     }
     func focusPoint(_ priority: EyePriority) -> CGPoint {
-        eye(priority) ?? CGPoint(x: bounds.midX, y: bounds.midY)
+        let rect = headBounds ?? bounds
+        return eye(priority) ?? CGPoint(x: rect.midX, y: rect.midY)
+    }
+    func focusBounds(_ priority: EyePriority) -> CGRect {
+        if let eye = eye(priority) {
+            let side = min(0.035, max(0.012, bounds.width * 0.12))
+            return CGRect(x: eye.x - side / 2, y: eye.y - side / 2, width: side, height: side)
+        }
+        return headBounds ?? bounds
+    }
+}
+
+enum FocusAction: Equatable {
+    case none, hold
+    case single(CGPoint), continuous(CGPoint)
+}
+struct FocusConfiguration: Equatable {
+    let mode: AutofocusMode
+    let subjects: SubjectMode
+    let eyes: EyePriority
+    init(_ settings: CameraSettings) {
+        mode = settings.autofocus; subjects = settings.subjects; eyes = settings.eyes
     }
 }
 
@@ -55,6 +77,9 @@ struct TrackingResult {
     var locked = false
     var missing = false
     var lost = false
+    var touchPoint: CGPoint?
+    var focusAction: FocusAction = .none
+    var configuration: FocusConfiguration?
 }
 
 /// Identity association and explicit lock are separate from physical lens AF.
@@ -63,36 +88,47 @@ struct SubjectTracker {
     private var lastSeen: Double = 0
     private var challenger: SubjectDetection?
     private var challengerSince: Double = 0
-    private var lockLost = false
 
     mutating func reset() {
         self = SubjectTracker()
     }
-    mutating func unlock() { reset() }
-    mutating func select(at point: CGPoint) {
+    mutating func unlock() { reset(); result.focusAction = .hold }
+    mutating func select(at point: CGPoint, eyes: EyePriority = .automatic) {
         guard let subject = result.candidates.filter({ $0.bounds.contains(point) })
-            .min(by: { $0.bounds.area < $1.bounds.area }) else { return }
+            .min(by: { $0.bounds.area < $1.bounds.area }) else {
+            result.selected = nil
+            result.locked = false
+            result.missing = false
+            result.lost = false
+            result.touchPoint = point
+            result.focusAction = .single(point)
+            return
+        }
         result.selected = subject
         result.locked = true
         result.missing = false
         result.lost = false
-        lockLost = false
+        result.touchPoint = nil
+        result.focusAction = .continuous(subject.focusPoint(eyes))
     }
     mutating func update(_ detections: [SubjectDetection], at now: Double,
                          settings: CameraSettings) -> TrackingResult {
         let candidates = detections.filter { settings.subjects.accepts($0.kind) && $0.confidence >= 0.35 }
+        result.focusAction = .none
         result.candidates = candidates
-        if settings.subjects == .none { reset(); return result }
-        if lockLost { result.missing = true; result.lost = true; return result }
+        if settings.autofocus == .manual { reset(); return result }
+        if result.touchPoint != nil { return result }
         if let previous = result.selected {
             let matches = candidates.filter { $0.kind == previous.kind }
                 .map { ($0, Self.matchScore(previous.bounds, $0.bounds)) }
                 .filter { $0.1 > 0.15 }.sorted { $0.1 > $1.1 }
             if result.locked && matches.count > 1 && matches[0].1 - matches[1].1 < 0.15 {
                 // Geometric identity is ambiguous at a crossing. Require a fresh user choice.
-                lockLost = true
-                result.missing = true
+                result.locked = false
+                result.selected = nil
+                result.missing = false
                 result.lost = true
+                result.focusAction = .hold
                 return result
             }
             if var match = matches.first?.0 {
@@ -101,18 +137,26 @@ struct SubjectTracker {
                 lastSeen = now
                 result.missing = false
                 result.lost = false
-                if result.locked { return result }
+                if result.locked {
+                    result.focusAction = .continuous(match.focusPoint(settings.eyes))
+                    return result
+                }
             } else {
                 result.missing = true
-                if now - lastSeen <= settings.trackingStickiness { return result }
+                if result.locked { result.focusAction = .hold }
+                if now - lastSeen <= settings.trackingStickiness && result.locked { return result }
                 if result.locked {
-                    lockLost = true
+                    result.locked = false
                     result.lost = true
+                    result.selected = nil
+                    result.missing = false
                     return result
                 }
                 result.selected = nil
             }
         }
+        // Candidate changes never instruct the lens. Only explicit selection enables tracking.
+        result.lost = false
         let best = candidates.max { rank($0) < rank($1) }
         if result.selected == nil {
             result.selected = best
