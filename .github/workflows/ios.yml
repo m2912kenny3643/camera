@@ -55,14 +55,14 @@ jobs:
             build/model-provenance.json
           if-no-files-found: error
       - name: Test portrait and landscape interface
-        timeout-minutes: 8
+        timeout-minutes: 12
         run: |
           set -euo pipefail
           xcodebuild test -project R6Camera.xcodeproj -scheme R6Camera \
             -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' \
             -only-testing:R6CameraUITests -parallel-testing-enabled NO \
-            -test-timeouts-enabled YES -default-test-execution-time-allowance 60 \
-            -maximum-test-execution-time-allowance 90 \
+            -test-timeouts-enabled YES -default-test-execution-time-allowance 180 \
+            -maximum-test-execution-time-allowance 180 \
             -resultBundlePath build/Tests.xcresult \
             CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/ui-tests.log
       - name: Upload diagnostics

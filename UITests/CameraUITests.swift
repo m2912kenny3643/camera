@@ -2,10 +2,13 @@ import XCTest
 
 final class CameraUITests: XCTestCase {
     func testQControlsAndMenuInBothOrientations() {
+        continueAfterFailure = false
         let app = XCUIApplication()
         app.launchEnvironment["R6_UI_TESTING"] = "1"
         XCUIDevice.shared.orientation = .portrait
         app.launch()
+        capture("Camera-portrait")
+        XCTAssertFalse(app.alerts.firstMatch.exists, "Simulator UI testing must not enter camera permissions or error alerts")
         let quick = app.buttons["quick.open"]
         XCTAssertTrue(quick.waitForExistence(timeout: 10))
         quick.tap()

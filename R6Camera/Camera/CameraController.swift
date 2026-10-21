@@ -103,11 +103,8 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
 
     func start() {
         #if targetEnvironment(simulator)
-        if ProcessInfo.processInfo.environment["R6_UI_TESTING"] == "1" {
-            DispatchQueue.main.async { self.status = "模擬器 UI 檢視 · 未啟動鏡頭" }
-            return
-        }
-        #endif
+        DispatchQueue.main.async { self.status = "模擬器 UI 檢視 · 未啟動鏡頭" }
+        #else
         Task { @MainActor in
             let allowed: Bool
             switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -122,6 +119,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             }
             self.startSession(initial: self.settings)
         }
+        #endif
     }
     private func startSession(initial startupSettings: CameraSettings) {
             sessionQueue.async {
