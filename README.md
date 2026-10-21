@@ -58,7 +58,9 @@ xcodebuild test -project R6Camera.xcodeproj -scheme R6Camera \
 Python 包裝測試：`python scripts/test_packaging.py`。
 
 Swift 測試覆蓋主體鎖定不跳旁人、遮擋恢復、眼睛降級、類別篩選、
-橫直向座標轉換與 C1–C3 保存。CI 另驗證裝置版 archive 和 IPA 結構。
+交錯歧義、橫直向座標轉換與 C1–C3 保存，可在 macOS 以 `swift test` 執行。
+CI 先執行核心測試、驗證裝置版 archive 與 IPA 結構，再執行模擬器介面測試。
+UI 截圖另存為 `UI-screenshots` artifact；介面測試失敗時整個 run 仍會標示失敗。
 
 真機驗收清單見 [docs/DEVICE-TESTS.md](docs/DEVICE-TESTS.md)。
 建置通過不代表硬體按鍵、追焦與成像已通過真機驗證。

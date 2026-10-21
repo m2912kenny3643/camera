@@ -35,10 +35,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build
-          xcodebuild test -project R6Camera.xcodeproj -scheme R6Camera \
-            -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' \
-            -parallel-testing-enabled NO -resultBundlePath build/Tests.xcresult \
-            CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/tests.log
+          swift test 2>&1 | tee build/core-tests.log
+          python3 scripts/test_packaging.py
       - name: Archive unsigned iPhone app
         run: |
           set -euo pipefail
@@ -56,6 +54,17 @@ jobs:
             build/R6Camera-unsigned.ipa
             build/model-provenance.json
           if-no-files-found: error
+      - name: Test portrait and landscape interface
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          xcodebuild test -project R6Camera.xcodeproj -scheme R6Camera \
+            -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' \
+            -only-testing:R6CameraUITests -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES -default-test-execution-time-allowance 60 \
+            -maximum-test-execution-time-allowance 90 \
+            -resultBundlePath build/Tests.xcresult \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/ui-tests.log
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4

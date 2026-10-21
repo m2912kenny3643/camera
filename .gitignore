@@ -2,6 +2,8 @@
 *.xcodeproj/
 DerivedData/
 build/
+.build/
+.swiftpm/
 *.ipa
 *.xcarchive/
 *.xcresult/

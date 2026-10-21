@@ -88,6 +88,13 @@ struct SubjectTracker {
             let matches = candidates.filter { $0.kind == previous.kind }
                 .map { ($0, Self.matchScore(previous.bounds, $0.bounds)) }
                 .filter { $0.1 > 0.15 }.sorted { $0.1 > $1.1 }
+            if result.locked && matches.count > 1 && matches[0].1 - matches[1].1 < 0.15 {
+                // Geometric identity is ambiguous at a crossing. Require a fresh user choice.
+                lockLost = true
+                result.missing = true
+                result.lost = true
+                return result
+            }
             if var match = matches.first?.0 {
                 match.id = previous.id
                 result.selected = match

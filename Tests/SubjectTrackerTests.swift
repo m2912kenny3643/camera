@@ -37,6 +37,16 @@ final class SubjectTrackerTests: XCTestCase {
         subject.rightEye = nil
         XCTAssertEqual(subject.focusPoint(.left), CGPoint(x: subject.bounds.midX, y: subject.bounds.midY))
     }
+    func testAmbiguousCrossingRequiresExplicitReselection() {
+        var tracker = SubjectTracker()
+        let settings = CameraSettings()
+        _ = tracker.update([person(0.1)], at: 0, settings: settings)
+        tracker.select(at: CGPoint(x: 0.15, y: 0.3))
+        let original = tracker.result.selected?.id
+        let ambiguous = tracker.update([person(0.09), person(0.11)], at: 0.2, settings: settings)
+        XCTAssertTrue(ambiguous.lost)
+        XCTAssertEqual(ambiguous.selected?.id, original)
+    }
     func testCategoryFilteringAndDisableClearsLock() {
         var tracker = SubjectTracker()
         var settings = CameraSettings()

@@ -425,6 +425,15 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             }
             guard !Task.isCancelled else { return }
             self.countdown = 0
+            if snapshot.autofocus == .single {
+                self.autofocus()
+                // A direct full press has no half-press preparation stage. Give lens AF a bounded opportunity.
+                for _ in 0..<12 {
+                    do { try await Task.sleep(nanoseconds: 60_000_000) } catch { return }
+                    if self.singleFocused { break }
+                }
+            }
+            guard !Task.isCancelled else { return }
             self.capture(snapshot)
         }
     }
