@@ -69,8 +69,9 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     @Published var battery: Float = -1
 
     override init() {
-        settings = store.load() ?? CameraSettings()
-        if settings.autofocus == .single { settings.autofocus = .servo }
+        var restored = SettingsStore().load() ?? CameraSettings()
+        if restored.autofocus == .single { restored.autofocus = .servo }
+        settings = restored
         super.init()
         UIDevice.current.isBatteryMonitoringEnabled = true
         vision.onFrame = { [weak self] result, aspect, histogram, styled in

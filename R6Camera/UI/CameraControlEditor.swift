@@ -28,6 +28,12 @@ struct CameraControlEditor: View {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 8) {
                     ForEach(options) { option in choice(option) }
                 }.padding(12)
+                if camera.settings.whiteBalance == .custom {
+                    HStack {
+                        Text("\(Int(camera.settings.kelvin)) K").font(.system(size: 13, design: .monospaced))
+                        Slider(value: Binding(get: { camera.settings.kelvin }, set: { v in camera.update { $0.kelvin = v } }), in: 2500...10000, step: 100).tint(.yellow)
+                    }.padding(.horizontal, 16).padding(.bottom, 8)
+                }
             } else if horizontal {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) { ForEach(options) { option in choice(option) } }.padding(12)

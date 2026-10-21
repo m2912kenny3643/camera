@@ -27,7 +27,7 @@ struct QuickControlView: View {
     private var editorHeight: CGFloat {
         switch selection ?? initial {
         case .eye, .style, .subject: return 280
-        case .whiteBalance: return 230
+        case .whiteBalance: return camera.settings.whiteBalance == .custom ? 270 : 230
         default: return 190
         }
     }
