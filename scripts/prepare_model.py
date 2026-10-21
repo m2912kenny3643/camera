@@ -8,6 +8,7 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 MODEL_URL = "https://ml-assets.apple.com/coreml/models/Image/ObjectDetection/YOLOv3Tiny/YOLOv3TinyInt8LUT.mlmodel"
 TARGET = ROOT / "R6Camera/Resources/YOLOv3TinyInt8LUT.mlmodel"
+MODEL_SHA256 = "cde8af2528d6eca1d1580fdd0f0147cb6613d40ba962656b5f683c65f571870e"
 
 
 def main():
@@ -20,8 +21,8 @@ def main():
     if payload.lstrip().startswith((b"<", b"{")):
         raise RuntimeError("Model endpoint returned text instead of a model")
     digest = hashlib.sha256(payload).hexdigest()
-    # CI records the first verified hash; subsequent builds can pin MODEL_SHA256.
-    expected = os.environ.get("MODEL_SHA256")
+    # Pinned to the official payload verified by the first Xcode build.
+    expected = os.environ.get("MODEL_SHA256", MODEL_SHA256)
     if expected and digest != expected:
         raise RuntimeError(f"Model checksum mismatch: {digest}")
     TARGET.write_bytes(payload)

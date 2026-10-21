@@ -7,6 +7,7 @@ struct CameraSettingsView: View {
     @State private var tab = 0
     private let tabs = ["拍攝", "AF", "顯示", "設定", "我的選單"]
     private let colors: [Color] = [.red, .purple, .yellow, .orange, .green]
+    private static let shutterSpeeds: [Double] = [8000.0, 4000, 2000, 1000, 500, 250, 125, 60, 30, 15, 8, 4, 2, 1].map { 1.0 / $0 }
 
     private func setting<T>(_ keyPath: WritableKeyPath<CameraSettings, T>) -> Binding<T> {
         Binding(get: { camera.settings[keyPath: keyPath] }, set: { value in camera.update { $0[keyPath: keyPath] = value } })
@@ -61,7 +62,7 @@ struct CameraSettingsView: View {
                 }
                 if camera.settings.controlsShutter {
                     Picker("快門", selection: setting(\.shutterSeconds)) {
-                        ForEach([1.0/8000, 1.0/4000, 1.0/2000, 1.0/1000, 1.0/500, 1.0/250, 1.0/125, 1.0/60, 1.0/30, 1.0/15, 1.0/8, 1.0/4, 0.5, 1.0], id: \.self) {
+                        ForEach(Self.shutterSpeeds, id: \.self) {
                             Text(CameraSettings.shutterLabel($0)).tag($0)
                         }
                     }

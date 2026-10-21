@@ -79,17 +79,17 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             DispatchQueue.main.async { self?.error = message }
         }
         notificationTokens.append(NotificationCenter.default.addObserver(
-            forName: .AVCaptureSessionWasInterrupted, object: session, queue: .main
+            forName: AVCaptureSession.wasInterruptedNotification, object: session, queue: .main
         ) { [weak self] _ in
             self?.isRunning = false
             self?.status = "相機暫時中斷"
             self?.cancelCapture()
         })
         notificationTokens.append(NotificationCenter.default.addObserver(
-            forName: .AVCaptureSessionInterruptionEnded, object: session, queue: .main
+            forName: AVCaptureSession.interruptionEndedNotification, object: session, queue: .main
         ) { [weak self] _ in self?.start() })
         notificationTokens.append(NotificationCenter.default.addObserver(
-            forName: .AVCaptureSessionRuntimeError, object: session, queue: .main
+            forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: .main
         ) { [weak self] notification in
             self?.isRunning = false
             self?.error = (notification.userInfo?[AVCaptureSessionErrorKey] as? Error)?.localizedDescription ?? "相機發生錯誤，請重新開啟 App。"
