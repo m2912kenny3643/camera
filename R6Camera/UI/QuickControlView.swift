@@ -20,7 +20,7 @@ struct QuickControlView: View {
                     Text("速控").font(.headline)
                     Spacer()
                     Text(String(format: "F%.1f", camera.aperture)).foregroundStyle(.gray)
-                    Button("返回拍攝") { close() }.foregroundStyle(amber)
+                    Button("返回拍攝") { close() }.foregroundStyle(amber).accessibilityIdentifier("quick.close")
                 }.padding(.horizontal, 12)
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 5), count: landscape ? 4 : 3), spacing: 5) {
                     ForEach(Control.allCases) { control in
@@ -34,7 +34,7 @@ struct QuickControlView: View {
                             .background(selection == control ? Color(white: 0.18) : Color(white: 0.055))
                             .overlay(Rectangle().stroke(selection == control ? amber : Color(white: 0.27), lineWidth: selection == control ? 2 : 1))
                             .foregroundStyle(selection == control ? amber : .white)
-                        }.buttonStyle(.plain)
+                        }.buttonStyle(.plain).accessibilityIdentifier("quick.\(control)")
                     }
                 }
                 VStack(alignment: .leading, spacing: 6) {

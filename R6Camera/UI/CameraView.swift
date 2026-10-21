@@ -4,10 +4,11 @@ struct CameraView: View {
     @StateObject private var camera = CameraController()
     @Environment(\.scenePhase) private var scenePhase
     @State private var panel: Panel?
+    @State private var showingQuick = false
     @State private var infoLevel = 1
     @State private var magnifyStart: CGFloat?
     @State private var mfMagnification = false
-    enum Panel: String, Identifiable { case quick, menu, playback; var id: String { rawValue } }
+    enum Panel: String, Identifiable { case menu, playback; var id: String { rawValue } }
     private let amber = Color(red: 1, green: 0.77, blue: 0.18)
 
     var body: some View {
@@ -38,11 +39,10 @@ struct CameraView: View {
             else { camera.stop() }
         }
         .overlay {
-            if panel == .quick { QuickControlView(camera: camera) { panel = nil } }
+            if showingQuick { QuickControlView(camera: camera) { showingQuick = false } }
         }
-        .sheet(item: Binding(get: { panel == .quick ? nil : panel }, set: { panel = $0 })) { item in
+        .sheet(item: $panel) { item in
             switch item {
-            case .quick: CameraSettingsView(camera: camera, quick: true)
             case .menu: CameraSettingsView(camera: camera, quick: false)
             case .playback: GalleryView(urls: camera.galleryURLs())
             }
@@ -75,6 +75,15 @@ struct CameraView: View {
         GeometryReader { geometry in
             ZStack {
                 CameraPreview(camera: camera)
+                    .contentShape(Rectangle())
+                    .onTapGesture { point in
+                        camera.reviewImage = nil
+                        camera.tap(at: ViewfinderGeometry.normalized(point, imageAspect: camera.frameAspect, size: geometry.size))
+                    }
+                    .simultaneousGesture(MagnifyGesture().onChanged { gesture in
+                        if magnifyStart == nil { magnifyStart = camera.zoom }
+                        camera.setZoom((magnifyStart ?? camera.zoom) * gesture.magnification)
+                    }.onEnded { _ in magnifyStart = nil })
                 if let frame = camera.styledFrame {
                     Image(decorative: frame, scale: 1)
                         .resizable().scaledToFill()
@@ -125,10 +134,10 @@ struct CameraView: View {
                             }
                         }
                         Spacer()
-                        Button { panel = .quick } label: {
+                        Button { showingQuick = true } label: {
                             Text("Q").font(.system(size: 22, weight: .bold)).frame(width: 44, height: 44)
                                 .background(.black.opacity(0.65)).overlay(Rectangle().stroke(.white.opacity(0.7)))
-                        }.buttonStyle(.plain).accessibilityLabel("速控選單")
+                        }.buttonStyle(.plain).accessibilityLabel("速控選單").accessibilityIdentifier("quick.open")
                     }
                 }
                 .padding(12)
@@ -145,22 +154,13 @@ struct CameraView: View {
                 }
             }
             .clipped()
-            .contentShape(Rectangle())
-            .onTapGesture { point in
-                camera.reviewImage = nil
-                camera.tap(at: ViewfinderGeometry.normalized(point, imageAspect: camera.frameAspect, size: geometry.size))
-            }
-            .simultaneousGesture(MagnifyGesture().onChanged { gesture in
-                if magnifyStart == nil { magnifyStart = camera.zoom }
-                camera.setZoom((magnifyStart ?? camera.zoom) * gesture.magnification)
-            }.onEnded { _ in magnifyStart = nil })
         }
     }
     private var sideRail: some View {
         VStack(spacing: 16) {
-            Button(camera.settings.whiteBalance.rawValue) { panel = .quick }
-            Button(camera.settings.style.rawValue) { panel = .quick }
-            Button(camera.settings.subjects.rawValue) { panel = .quick }
+            Button(camera.settings.whiteBalance.rawValue) { showingQuick = true }
+            Button(camera.settings.style.rawValue) { showingQuick = true }
+            Button(camera.settings.subjects.rawValue) { showingQuick = true }
             Spacer(minLength: 0)
             Button("AF-ON") { camera.autofocus() }.font(.caption2)
             shutterButton

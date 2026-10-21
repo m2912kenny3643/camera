@@ -6,16 +6,16 @@ final class CameraUITests: XCTestCase {
         app.launchEnvironment["R6_UI_TESTING"] = "1"
         XCUIDevice.shared.orientation = .portrait
         app.launch()
-        let quick = app.buttons["速控選單"]
+        let quick = app.buttons["quick.open"]
         XCTAssertTrue(quick.waitForExistence(timeout: 10))
         quick.tap()
-        XCTAssertTrue(app.buttons["返回拍攝"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons.containing(.staticText, identifier: "眼睛偵測").firstMatch.exists)
+        XCTAssertTrue(app.buttons["quick.close"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["quick.eye"].exists)
         capture("Q-portrait")
         XCUIDevice.shared.orientation = .landscapeLeft
-        XCTAssertTrue(app.buttons["返回拍攝"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["quick.close"].waitForExistence(timeout: 5))
         capture("Q-landscape")
-        app.buttons["返回拍攝"].tap()
+        app.buttons["quick.close"].tap()
         app.buttons["MENU"].tap()
         XCTAssertTrue(app.buttons["AF"].waitForExistence(timeout: 5))
         app.buttons["AF"].tap()

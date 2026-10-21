@@ -104,7 +104,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     func start() {
         #if targetEnvironment(simulator)
         if ProcessInfo.processInfo.environment["R6_UI_TESTING"] == "1" {
-            status = "模擬器 UI 檢視 · 未啟動鏡頭"
+            DispatchQueue.main.async { self.status = "模擬器 UI 檢視 · 未啟動鏡頭" }
             return
         }
         #endif
