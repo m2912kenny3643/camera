@@ -47,10 +47,19 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+  R6CameraUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    dependencies:
+      - target: R6Camera
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   R6Camera:
     build:
       targets:
         R6Camera: all
     test:
-      targets: [R6CameraTests]
+      targets: [R6CameraTests, R6CameraUITests]

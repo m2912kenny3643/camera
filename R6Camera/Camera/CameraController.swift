@@ -102,6 +102,12 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     }
 
     func start() {
+        #if targetEnvironment(simulator)
+        if ProcessInfo.processInfo.environment["R6_UI_TESTING"] == "1" {
+            status = "模擬器 UI 檢視 · 未啟動鏡頭"
+            return
+        }
+        #endif
         Task { @MainActor in
             let allowed: Bool
             switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -114,8 +120,11 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                 self.status = "相機權限未開啟"
                 return
             }
-            let startupSettings = self.settings
-            self.sessionQueue.async {
+            self.startSession(initial: self.settings)
+        }
+    }
+    private func startSession(initial startupSettings: CameraSettings) {
+            sessionQueue.async {
                 do {
                     if !self.configured { try self.configureSession(initial: startupSettings) }
                     if !self.session.isRunning { self.session.startRunning() }
@@ -126,7 +135,6 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                     }
                 } catch { self.report(error) }
             }
-        }
     }
     func stop() {
         cancelCapture()
@@ -434,7 +442,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     }
     func cancelCapture() { captureTask?.cancel() }
     private func capture(_ settings: CameraSettings) {
-        sessionQueue.async {
+        sessionQueue.async { [self] in
             guard self.session.isRunning else { return }
             // Back pressure: no unbounded RAW/full-resolution work while the button is held.
             guard self.jobs.count < 2 else { return }

@@ -94,7 +94,7 @@ struct QuickControlView: View {
         case .exposure:
             Slider(value: Binding(get: { camera.settings.exposureBias }, set: { value in camera.update { $0.exposureBias = value } }), in: -3...3, step: 1.0/3).tint(amber)
         case .shutter:
-            choices([1.0/4000, 1.0/1000, 1.0/500, 1.0/250, 1.0/125, 1.0/60, 1.0/30, 1.0/8, 0.5, 1.0],
+            choices(CameraSettings.shutterSpeeds,
                     current: camera.settings.shutterSeconds, title: { CameraSettings.shutterLabel($0) }) { new in
                 camera.update {
                     $0.shutterSeconds = new
@@ -103,7 +103,7 @@ struct QuickControlView: View {
                 }
             }
         case .iso:
-            choices([50.0, 100, 200, 400, 800, 1600, 3200], current: camera.settings.iso, title: { "\(Int($0))" }) { new in
+            choices(CameraSettings.isoValues, current: camera.settings.iso, title: { "\(Int($0))" }) { new in
                 camera.update {
                     $0.iso = new
                     if $0.program == .flexible { $0.autoISO = false } else { $0.program = .manual }

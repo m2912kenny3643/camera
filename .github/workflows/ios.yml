@@ -65,3 +65,16 @@ jobs:
             build/*.log
             build/*.xcresult
           if-no-files-found: ignore
+      - name: Export UI screenshots
+        if: always()
+        run: |
+          if [ -d build/Tests.xcresult ]; then
+            xcrun xcresulttool export attachments --path build/Tests.xcresult --output-path build/screenshots || true
+          fi
+      - name: Upload UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: UI-screenshots
+          path: build/screenshots
+          if-no-files-found: ignore

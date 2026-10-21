@@ -7,7 +7,6 @@ struct CameraSettingsView: View {
     @State private var tab = 0
     private let tabs = ["拍攝", "AF", "顯示", "設定", "我的選單"]
     private let colors: [Color] = [.red, .purple, .yellow, .orange, .green]
-    private static let shutterSpeeds: [Double] = [8000.0, 4000, 2000, 1000, 500, 250, 125, 60, 30, 15, 8, 4, 2, 1].map { 1.0 / $0 }
 
     private func setting<T>(_ keyPath: WritableKeyPath<CameraSettings, T>) -> Binding<T> {
         Binding(get: { camera.settings[keyPath: keyPath] }, set: { value in camera.update { $0[keyPath: keyPath] = value } })
@@ -62,7 +61,7 @@ struct CameraSettingsView: View {
                 }
                 if camera.settings.controlsShutter {
                     Picker("快門", selection: setting(\.shutterSeconds)) {
-                        ForEach(Self.shutterSpeeds, id: \.self) {
+                        ForEach(CameraSettings.shutterSpeeds, id: \.self) {
                             Text(CameraSettings.shutterLabel($0)).tag($0)
                         }
                     }
@@ -70,7 +69,7 @@ struct CameraSettingsView: View {
                 }
                 if camera.settings.controlsISO {
                     Picker("ISO", selection: setting(\.iso)) {
-                        ForEach([50.0, 100, 200, 400, 800, 1600, 3200], id: \.self) { Text("\(Int($0))").tag($0) }
+                        ForEach(CameraSettings.isoValues, id: \.self) { Text("\(Int($0))").tag($0) }
                     }
                 }
                 LabeledContent("曝光補償", value: String(format: "%+.1f EV", camera.settings.exposureBias))

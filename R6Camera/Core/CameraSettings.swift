@@ -46,6 +46,8 @@ enum WhiteBalance: String, CaseIterable, Codable, Identifiable {
 }
 
 struct CameraSettings: Codable, Equatable {
+    static let shutterSpeeds: [Double] = [8000.0, 4000, 2000, 1000, 500, 250, 125, 60, 30, 15, 8, 4, 2, 1].map { 1.0 / $0 }
+    static let isoValues: [Double] = [50, 100, 200, 400, 800, 1600, 3200]
     var program: ExposureProgram = .program
     var autofocus: AutofocusMode = .servo
     var subjects: SubjectMode = .automatic
