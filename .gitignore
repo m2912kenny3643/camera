@@ -1,0 +1,10 @@
+*.pdf
+*.xcodeproj/
+DerivedData/
+build/
+*.ipa
+*.xcarchive/
+*.xcresult/
+R6Camera/Resources/*.mlmodel
+.DS_Store
+__pycache__/

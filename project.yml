@@ -1,0 +1,56 @@
+name: R6Camera
+options:
+  bundleIdPrefix: com.kenny.camera
+  deploymentTarget:
+    iOS: "18.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    SWIFT_STRICT_CONCURRENCY: minimal
+    TARGETED_DEVICE_FAMILY: "1"
+    IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+    CODE_SIGNING_ALLOWED: NO
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  R6Camera:
+    type: application
+    platform: iOS
+    sources:
+      - path: R6Camera
+        excludes: [Info.plist]
+    info:
+      path: R6Camera/Info.plist
+      properties:
+        CFBundleDisplayName: R6 Camera
+        NSCameraUsageDescription: 使用相機拍攝照片、識別主體並持續對焦。
+        NSPhotoLibraryAddUsageDescription: 將你拍攝的照片儲存到相簿。
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIRequiresFullScreen: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kenny.camera.r6
+        GENERATE_INFOPLIST_FILE: NO
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+        SWIFT_EMIT_LOC_STRINGS: YES
+        ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: NO
+  R6CameraTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    dependencies:
+      - target: R6Camera
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  R6Camera:
+    build:
+      targets:
+        R6Camera: all
+    test:
+      targets: [R6CameraTests]
