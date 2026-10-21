@@ -48,11 +48,10 @@ struct CanonGlyph: View {
             switch kind {
             case .area:
                 FocusCorners().stroke(lineWidth: 1.4).padding(3)
-                Rectangle().stroke(lineWidth: 1.2).frame(width: 8, height: 8)
             case .style:
                 Rectangle().stroke(lineWidth: 1)
                 HStack(spacing: 2) {
-                    Image(systemName: "slider.horizontal.3").font(.system(size: 11))
+                    StyleMark().fill().frame(width: 13, height: 15)
                     Text(label.isEmpty ? "S" : label).font(.system(size: 15, weight: .bold))
                 }.padding(2)
             case .meter:
@@ -78,6 +77,16 @@ struct CanonGlyph: View {
                 Image(systemName: label == "連拍" ? "rectangle.on.rectangle" : "rectangle").font(.system(size: 21))
             }
         }.frame(width: 31, height: 24).accessibilityHidden(true)
+    }
+}
+private struct StyleMark: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path(ellipseIn: CGRect(x: r.midX - 1.6, y: r.midY - 1.6, width: 3.2, height: 3.2))
+        for angle in stride(from: CGFloat(0), to: .pi * 2, by: .pi / 2) {
+            let x = r.midX + cos(angle) * 5, y = r.midY + sin(angle) * 5
+            p.addRect(CGRect(x: x - 1.2, y: y - 1, width: 2.4, height: 2))
+        }
+        return p
     }
 }
 

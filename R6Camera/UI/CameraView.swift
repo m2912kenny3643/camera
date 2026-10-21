@@ -25,6 +25,7 @@ struct CameraView: View {
         }
         .preferredColorScheme(.dark).onAppear { camera.start() }
         .onChange(of: scenePhase) { _, phase in if phase == .active { camera.start() } else { camera.stop() } }
+        .onChange(of: panel) { _, panel in camera.captureEnabled = panel == nil }
         .fullScreenCover(item: $panel) { item in
             switch item {
             case .menu: CameraSettingsView(camera: camera)
@@ -151,7 +152,7 @@ private struct TrackingOverlay: View {
 }
 private struct GridLines: Shape {
     func path(in rect: CGRect) -> Path {
-        Path { p in for f in [CGFloat(1.0 / 3), 2.0 / 3] {
+        Path { p in for f in [CGFloat(1.0 / 3), CGFloat(2.0 / 3)] {
             p.move(to: CGPoint(x: rect.width * f, y: 0)); p.addLine(to: CGPoint(x: rect.width * f, y: rect.height))
             p.move(to: CGPoint(x: 0, y: rect.height * f)); p.addLine(to: CGPoint(x: rect.width, y: rect.height * f))
         } }

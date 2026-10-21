@@ -45,6 +45,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
 
     @Published var settings: CameraSettings
     @Published var isRunning = false
+    @Published var captureEnabled = true
     @Published var error: String?
     @Published var status = "正在啟動相機"
     @Published var tracking = TrackingResult()
@@ -475,7 +476,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     }
 
     func shutter() {
-        guard isRunning, captureTask == nil else { return }
+        guard isRunning, captureEnabled, captureTask == nil else { return }
         let snapshot = settings
         captureTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -491,7 +492,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         }
     }
     func beginBurst() {
-        guard settings.drive == .burst, isRunning, captureTask == nil else { shutter(); return }
+        guard settings.drive == .burst, isRunning, captureEnabled, captureTask == nil else { shutter(); return }
         let snapshot = settings
         captureTask = Task { @MainActor [weak self] in
             guard let self else { return }

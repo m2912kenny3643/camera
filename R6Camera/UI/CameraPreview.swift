@@ -31,7 +31,7 @@ struct CameraPreview: UIViewRepresentable {
         return view
     }
     func updateUIView(_ uiView: PreviewSurface, context: Context) {
-        uiView.captureInteraction?.isEnabled = camera.isRunning
+        uiView.captureInteraction?.isEnabled = camera.isRunning && camera.captureEnabled
         uiView.rotationAngle = camera.fixedRotation
         uiView.setNeedsLayout()
     }
