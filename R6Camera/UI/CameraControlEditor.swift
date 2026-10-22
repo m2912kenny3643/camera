@@ -25,7 +25,10 @@ struct CameraControlEditor: View {
             }
             HStack {
                 Text(editable ? selectionTitle : "目前模式自動控制此項目"); Spacer()
-                if palette { Button(action: close) { Image(systemName: "arrow.uturn.backward").frame(width: 36, height: 28) }.accessibilityIdentifier("editor.back") }
+                if palette {
+                    Button(action: close) { Image(systemName: "arrow.uturn.backward").frame(width: 36, height: 28) }.accessibilityIdentifier("editor.back")
+                    confirmation
+                }
             }.font(.system(size: 13)).padding(.horizontal, 16).frame(minHeight: 30).background(Color(white: palette ? 0.08 : 0.2).opacity(0.9))
             if editable {
                 if let range = numericRange {
@@ -50,15 +53,17 @@ struct CameraControlEditor: View {
                 Text(draft.program == .auto ? "選擇 P／Tv／M／Fv 可調整" : "手動 ISO 的 M 模式顯示測光偏差").font(.system(size: 14)).frame(maxWidth: .infinity, minHeight: 54)
             }
             if !palette { Spacer(minLength: 0) }
-            HStack {
-                if !palette || control == .drive { Text(detail).font(.system(size: 11)).foregroundStyle(.gray).lineLimit(2) }
-                Spacer()
-                Button {
-                    if editable { camera.update { control.apply(draft, to: &$0) } }
-                    close()
-                } label: { Text("SET  OK").font(.system(size: 13)).padding(.horizontal, 12).frame(height: 31).overlay(Rectangle().stroke(.white.opacity(0.6))) }.accessibilityIdentifier("editor.confirm")
-            }.padding(.horizontal, 20).padding(.vertical, 6)
+            if !palette {
+                HStack { Text(detail).font(.system(size: 11)).foregroundStyle(.gray).lineLimit(2); Spacer(); confirmation }
+                    .padding(.horizontal, 20).padding(.vertical, 6)
+            } else if control == .drive { Text(detail).font(.system(size: 10)).foregroundStyle(.gray).padding(.bottom, 4) }
         }.foregroundStyle(.white).background(Color.black.opacity(palette ? 0.6 : 1)).buttonStyle(.plain)
+    }
+    private var confirmation: some View {
+        Button {
+            if editable { camera.update { control.apply(draft, to: &$0) } }
+            close()
+        } label: { Text("SET  OK").font(.system(size: 13)).padding(.horizontal, 8).frame(height: 29).overlay(Rectangle().stroke(.white.opacity(0.6))) }.accessibilityIdentifier("editor.confirm")
     }
     private var selectionTitle: String {
         let value = control == .drive && draft.drive.isBurst ? "\(draft.drive.label)（上限 \(Int(draft.drive.fps)) 張／秒）" : control.value(draft)
@@ -89,13 +94,15 @@ struct CameraControlEditor: View {
                 if control == .style, let style = PictureStyle.allCases.first(where: { $0.rawValue == option.title }) { CanonGlyph(kind: .style, label: style.cameraCode) }
                 if control == .drive, let mode = DriveMode.allCases.first(where: { $0.label == option.title }) { CanonGlyph(kind: .drive, label: mode.code) }
                 if control == .whiteBalance { Image(systemName: option.symbol).font(.system(size: 18)) }
-                Text(option.title).font(.system(size: 14, weight: .medium)).lineLimit(1)
+                if control == .area { CanonGlyph(kind: .area) }
+                if control != .drive && control != .area { Text(option.title).font(.system(size: control == .autofocus ? 18 : 14, weight: .medium)).lineLimit(1) }
                 if !horizontal { Spacer(minLength: 2) }
                 if control == .eye { CanonGlyph(kind: .eye); Text(option.eyeCode).font(.system(size: 11, weight: .bold)).frame(width: 34) }
                 if control == .style { Text(String(format: "%.0f  %+.0f  %+.0f  %+.0f", draft.sharpness, draft.contrast, draft.saturation, draft.hue)).font(.system(size: 12, design: .monospaced)) }
-            }.foregroundStyle(option.selected ? Color.cyan : .white).padding(.horizontal, 12).frame(minWidth: horizontal ? 80 : 0, minHeight: 34).frame(maxWidth: horizontal ? nil : .infinity)
+            }.foregroundStyle(option.selected ? Color.cyan : .white).padding(.horizontal, control == .drive ? 6 : 12)
+                .frame(minWidth: control == .autofocus ? 240 : horizontal ? control == .drive ? 52 : 80 : 0, minHeight: control == .autofocus ? 48 : 34).frame(maxWidth: horizontal ? nil : .infinity)
                 .background(option.selected ? Color.black : Color(white: 0.12)).overlay(Rectangle().stroke(option.selected ? accent : Color(white: 0.3), lineWidth: option.selected ? 2 : 1))
-        }.accessibilityIdentifier("option.\(option.title)").accessibilityValue(option.selected ? "已選取" : "")
+        }.accessibilityLabel(option.title).accessibilityIdentifier("option.\(option.title)").accessibilityValue(option.selected ? "已選取" : "")
     }
     private var detail: String {
         switch control {

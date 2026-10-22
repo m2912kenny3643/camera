@@ -32,9 +32,9 @@ struct QuickControlView: View {
     }
     private var paletteHeight: CGFloat {
         switch initial {
-        case .drive, .whiteBalance: return 175
-        case .exposure: return 150
-        default: return 135
+        case .drive, .whiteBalance: return 140
+        case .exposure: return 130
+        default: return 100
         }
     }
     private func cell(_ control: CameraControl) -> some View {

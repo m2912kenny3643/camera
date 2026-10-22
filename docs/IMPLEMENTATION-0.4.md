@@ -32,7 +32,9 @@ palettes, magenta AF pages, red shooting pages, two-group real image formats,
 observed-format readout, H+/H/L glyphs, timer count, large/small level and AUTO
 underlining. Editors keep drafts, SET applies only the edited fields, and Back
 cancels. A+ restrictions preserve personal settings. INFO cycles full/level/clean.
-The latest UI source still needs native validation and actual screenshot review.
+Native validation and actual screenshot review are recorded per exact source
+commit in GitHub Actions and the delivered verification report; design proposals
+are never substituted for actual screenshots.
 
 ## Bird model release gate
 
@@ -58,6 +60,10 @@ from the prior iteration are preserved.
 Core baseline 93686a4 passed run 39762042185: 37 Swift tests, 5 Python tests,
 iPhone archive and one 65.232-second UI flow, including zoom gestures and capture
 feedback. This validates the core/pre-redesign baseline, not later UI changes.
+The first redesigned UI at 70d0f89 passed run 39764551380 (37 Swift + 5 Python,
+archive, 124.168-second UI flow). Manual screenshot review then found wrapped
+drive glyph labels; the follow-up widens labels, uses a compact seven-glyph strip,
+and reduces the live-palette height. Its exact build result is in the final report.
 
 No actual 100-image bird evaluation or phone latency result exists. Hardware
 camera/volume buttons, actual focusing, continuous preview, burst timing, level

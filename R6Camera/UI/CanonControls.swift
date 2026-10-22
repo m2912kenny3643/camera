@@ -2,7 +2,7 @@ import SwiftUI
 
 enum CameraControl: String, CaseIterable, Identifiable {
     case mode = "拍攝模式", shutter = "快門速度", iso = "ISO 感光度", exposure = "曝光補償"
-    case autofocus = "對焦操作", subject = "要偵測的主體", eye = "眼睛偵測", drive = "驅動模式"
+    case autofocus = "自動對焦操作", subject = "要偵測的主體", eye = "眼睛偵測", drive = "驅動模式"
     case whiteBalance = "白平衡", style = "相片風格", format = "影像畫質", lens = "鏡頭切換"
     case kelvin = "色溫", manualFocus = "手動對焦", contrast = "對比", saturation = "飽和度"
     case sharpness = "銳利度", hue = "色調", stickiness = "遮擋寬限", sensitivity = "候選切換靈敏度"
@@ -111,11 +111,12 @@ struct CanonGlyph: View {
             case .drive:
                 HStack(spacing: 2) {
                     Image(systemName: label.hasPrefix("10") || label == "2" ? "timer" : label.isEmpty ? "rectangle" : "rectangle.on.rectangle").font(.system(size: 18))
-                    if !label.isEmpty { Text(label).font(.system(size: 10, weight: .bold)) }
+                    if !label.isEmpty { Text(label).font(.system(size: 10, weight: .bold)).lineLimit(1).fixedSize(horizontal: true, vertical: false) }
                 }
             }
-        }.frame(width: 31, height: 24).accessibilityHidden(true)
+        }.frame(width: glyphWidth, height: 24).accessibilityHidden(true)
     }
+    private var glyphWidth: CGFloat { if case .drive = kind { return 52 }; return 31 }
 }
 private struct StyleMark: Shape {
     func path(in r: CGRect) -> Path {

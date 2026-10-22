@@ -95,7 +95,7 @@ final class CameraUITests: XCTestCase {
         app.buttons["editor.back"].tap()
         XCTAssertEqual(drive.value as? String, "高速連拍 H+")
         drive.tap()
-        app.scrollViews["editor.options"].swipeLeft()
+        XCTAssertTrue(app.buttons["option.自拍連拍"].isHittable)
         app.buttons["option.自拍連拍"].tap()
         let count = app.steppers["drive.timerCount"]
         XCTAssertTrue(count.waitForExistence(timeout: 3))
