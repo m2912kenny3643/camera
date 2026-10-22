@@ -23,6 +23,6 @@
 
 ## 鳥眼與交付限制
 
-本版模型散布閘門仍 fail-closed，`docs/bird-release.json` 不會無證據改成可散布。研究與候選見 `docs/research/bird-bundling-0.5.md`（研究完成後提供）。現有可下載驗證 IPA 不含鳥眼權重，不代表完整計畫已完成。
+本版模型散布閘門仍 fail-closed，`docs/bird-release.json` 不會無證據改成可散布。已找到官方 CC BY 4.0 發布的 I-MuPPET 鴿子眼／頭權重並完成單檔完整校驗與靜態檢查，正在隔離 macOS 做完整 RCNN 研究；其物種泛化、Core ML 與真機效能不得由授權或轉換數值推論。研究與候選見 [鳥眼打包研究](research/bird-bundling-0.5.md)。驗證 IPA 不含鳥眼權重，不代表完整計畫已完成。
 
 沒有 iPhone 真機可供此執行環境測試，連拍 10 秒的 95% 間隔偏差、實際鏡頭合焦、按鍵、水平儀方向、真實鳥眼準確度與推論延遲均不能宣稱通過。音量鍵仍可能觸發快門，沿用使用者接受的未解決項。

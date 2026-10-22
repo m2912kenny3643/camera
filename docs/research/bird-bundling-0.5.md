@@ -100,7 +100,7 @@ Caltech 原文："Their use is restricted to non-commercial research and educati
 
 `retrieve_single_checkpoint.py` 和 `audit_checkpoint.py` 也僅保留為 ignored、可閱讀的研究操作紀錄，不是 App 或正式發布流程。完整 SHA-256 是本次實際取得的單檔計算值；尚未獨立下載並核對 1.3GB archive 的整包 MD5，不能混稱兩者皆通過。App／release gate 未修改。
 
-### 獨立 opt-in macOS 可行性實驗已備妥，尚未執行
+### 獨立 opt-in macOS 實驗：首次探測失敗，FrozenBN 修正待重跑
 
 新增 [research_imuppet_export.py](../../scripts/research_imuppet_export.py)，沿用 [bird-research.yml](../../.github/workflows/bird-research.yml) 的手動工作流程；`candidate` 選項為 `synthet`（預設不變）或 `imuppet`。手動 dispatch 可選擇實驗分支。權重／traced 模型／Core ML package 只寫 ignored `build/research/imuppet/`；唯一新增上傳項目為 `build/imuppet-research-report.json`，沒有權重或 IPA artifact。GitHub runner 仍需真正執行，不能把腳本存在當成功。
 
@@ -108,14 +108,43 @@ I-MuPPET 分支只安裝共同的固定環境 `torch2.7.0 / torchvision0.22.0 / 
 
 1. 取得上述固定 Range，大小／CRC32／壓縮與解壓 SHA-256 全相符才保留。既有本機檔案亦重新核對完整大小／hash。
 2. 掃描完整 ZIP、全部 CRC、固定 pickle SHA／長度、封閉 opcode／三個 GLOBAL 與 storage budget；再且僅再用 `torch.load(weights_only=True, map_location="cpu")`，不添加 custom safe_globals、不允許寬鬆重試；驗證所有313 tensor型別、dtype、59,161,568總元素、finite及輸出頭形狀。
-3. 純 torchvision 建構 `keypointrcnn_resnet50_fpn(weights=None, weights_backbone=None, num_classes=2, num_keypoints=7)`，保留 checkpoint `_metadata`，**strict=True** 載入。舊FPN／RPN版本轉換只由固定版官方 `_load_from_state_dict` 執行，不自行吞 missing／unexpected keys。[FPN migration](https://github.com/pytorch/vision/blob/v0.22.0/torchvision/ops/feature_pyramid_network.py#L100)、[RPN migration](https://github.com/pytorch/vision/blob/v0.22.0/torchvision/models/detection/rpn.py#L37)。
+3. 純 torchvision 明確建構 `resnet_fpn_backbone(backbone_name="resnet50", weights=None, norm_layer=FrozenBatchNorm2d, trainable_layers=0)`，再交給 `KeypointRCNN(..., num_classes=2, num_keypoints=7)`，保留 checkpoint `_metadata`，**strict=True** 載入。這是下方首次結果後的修正，不能把先前全None factory的普通BN當成相同架構。舊FPN／RPN版本轉換只由固定版官方 `_load_from_state_dict` 執行，不自行吞 missing／unexpected keys。[FPN migration](https://github.com/pytorch/vision/blob/v0.22.0/torchvision/ops/feature_pyramid_network.py#L100)、[RPN migration](https://github.com/pytorch/vision/blob/v0.22.0/torchvision/models/detection/rpn.py#L37)。
 4. 標準RGB0…1單張推論（灰、漸層、固定seed雜訊，加上可取得的官方鴿子 smoke），檢查五個輸出形狀與有限值，報CPU時間；只有smoke，不構成準確度驗收。[官方輸入契約](https://github.com/pytorch/vision/blob/v0.22.0/torchvision/models/detection/keypoint_rcnn.py#L26)。
 5. trace完整RCNN，保留 resize／normalize／FPN／RPN／ROI／NMS，記錄operator名稱。優先從非空的官方鴿子case trace；`check_trace=False` 只避開隱藏的重複驗證，**仍明確比較所有輸入的 eager→trace 輸出**。shape、labels、finite不相符或數值超過既定門檻會失敗，不跳過再宣稱成功。
 6. 嘗試完整圖 `ct.convert`，FLOAT32、固定`image_tensor[1,3,640,640]`，iOS18 minimum（研究部署目標，不是 App 改版）。缺必要算子時記錄具體例外並停止；不砍ROI／RPN或偽造輸出。成功才做CPU Core ML所有輸入parity；boxes／keypoints最大絕對誤差門檻0.01像素、scores0.0001、keypoints_scores0.001、labels完全相同，空輸出仍要求shape一致。這些是研究數值門檻，不是鳥眼準確度門檻。**沒有非空的官方鴿子case時，即使所有空輸出parity通過，也禁止 `experiment_passed`**，記錄 `empty-positive-coverage`；圖片不可取或沒有辨識到時仍允許嚴格載入／trace／Core ML可行性探測。
 
 smoke 來源為[官方 project page](https://urs-waldmann.github.io/i-muppet/) 實際引用的 [framework.jpg](https://urs-waldmann.github.io/i-muppet/imgs/framework.jpg)，225,202 bytes、2244×472、SHA-256 `b9d1970bf4a4a2c6f92c2173582c55e081a7bab4ac3f4dc04b46dbc34605bb91`。本輪已目視確認左側是真正、沒有預測框的輸入鴿子照片；只裁其內部 `xyxy=(34,34,354,354)`，雙線性放大為640-square並轉RGB0…1。若來源更新／hash不符則拒用。原圖僅存 ignored，**不上傳、不進App、不訓練、不計入100張獨立評測**；此figure可能與訓練資料同源，未建立照片的獨立散布授權，不把code MIT當成照片權利證據。本例只回答完整RCNN是否確實產生並保留非空instances，不回答泛化或眼點正確率。
 
-本機 Windows 已通過 `py_compile` 及 inspect-only（實際完整checkpoint）的全部靜態檢查；本機沒有執行torch載入、標準推論、tracing或Core ML轉換。macOS實際命令為 `R6_BIRD_PERSONAL_RESEARCH=1 python scripts/research_imuppet_export.py --convert`。若只要本機重驗既有素材，可加 `--checkpoint build/research/bird-bundling-0.5/muppet_600.pt`；預設不帶`--convert`只做靜態查核。
+本機 Windows 已通過 `py_compile` 及 inspect-only（實際完整checkpoint）的全部靜態檢查；本機沒有執行torch載入、標準推論、tracing或Core ML轉換。首次macOS結果見下節；FrozenBN修正版再次通過本機 `py_compile`，尚待新CI。macOS實際命令為 `R6_BIRD_PERSONAL_RESEARCH=1 python scripts/research_imuppet_export.py --convert`。若只要本機重驗既有素材，可加 `--checkpoint build/research/bird-bundling-0.5/muppet_600.pt`；預設不帶`--convert`只做靜態查核。
+
+### 實測 39805007324：嚴格載入通過，不等於鳥眼模型可用
+
+[macOS研究 run39805007324](https://github.com/m2912kenny3643/camera/actions/runs/39805007324) 的實際 JSON 已下載查閱（ignored `build/output/0.5-final/bird-research/imuppet-research-report.json`，SHA-256 `adfcb35e33249a475cdb452cd7b5cd977bfdb6db52d886ec4ee7438a9964836d`）：
+
+- 安全載入與313-tensor **strict=True** 載入通過，missing／unexpected keys皆空。
+- 灰、漸層、雜訊、官方鴿子裁圖**四例全部 `boxes [0,4]`**。四例trace parity通過只代表空輸出一致；`positive_output_coverage` 明確為false，沒有 `experiment_passed`，不能據此說明一般眼／頭可用。
+- 完整 Core ML 轉換實際失敗：`NotImplementedError: PyTorch convert function for op 'torchvision::roi_align' not implemented.` 沒有匯出或手機推論證據。
+
+#### 已修正但尚未重跑的架構差異
+
+原作者 [network_utils.py L16–24](https://github.com/urs-waldmann/i-muppet/blob/a8588a792bd98dfc1513abcf809bfbdb40e30918/utils/network_utils.py#L16) 用 `pretrained_backbone=True`。torchvision0.22 [官方factory L430–436](https://github.com/pytorch/vision/blob/v0.22.0/torchvision/models/detection/keypoint_rcnn.py#L430) 依 `weights`／`weights_backbone` 是否非None決定norm：有預訓練來源用FrozenBatchNorm2d，兩者全None則普通BatchNorm2d。**strict載入成功不會自動把module類別改成FrozenBN**，因此首次實驗的架構一致性沒有建立，不能將零detections直接歸因於checkpoint失效。
+
+目前腳本使用[官方 `resnet_fpn_backbone` L63–107](https://github.com/pytorch/vision/blob/v0.22.0/torchvision/models/detection/backbone_utils.py#L63) 明確設定FrozenBN而且 `weights=None`、`trainable_layers=0`，再建立KeypointRCNN，沒有下載任何ImageNet／COCO額外權重。要求全模型53個FrozenBN、普通BN=0；strict載入前／後記錄norm完整類別與epsilon。原有hash、budget、strict=True、非空鴿子coverage閘門、完整RPN／ROI／NMS都不變。FrozenBN修正是有來源依據的重建修正，**尚未測得它會產生非空detections**。
+
+### 保留ROIAlign的下一條技術路線
+
+**Core ML 原生 converter 現況**：固定 [coremltools9.0 Torch ops](https://github.com/apple/coremltools/blob/9.0/coremltools/converters/mil/frontend/torch/ops.py) 沒有 `roi_align` 註冊，本次CI已實際證明該算子阻擋。Apple官方建議對缺少的op寫 [MIL composite operator](https://apple.github.io/coremltools/docs-guides/source/composite-operators.html)；舊NeuralNetwork builder的 [crop_resize](https://apple.github.io/coremltools/_modules/coremltools/models/neural_network/builder.html#NeuralNetworkBuilder.add_crop_resize) 描述ROIAlign可由crop-resize加pooling構成。這提供自訂等價轉換的方向，**沒有提供適用本完整RCNN的現成、已驗證converter**。
+
+不能把單次crop/resize當成已等價的ROIAlign：還需驗證sampling ratio、aligned=False的座標／小ROI夾限、每個FPN level、空ROI與可變ROI數、dtype及keypoint head的不同pool尺寸。[Apple repo issue2479](https://github.com/apple/coremltools/issues/2479) 的社群範例就碰到空ROI形狀／dtype問題；它不是官方保證或可直接照抄的解法。Apple [custom operator文件](https://apple.github.io/coremltools/docs-guides/source/custom-operators.html#step-4-implement-classes-in-swift) 另明示custom layer只支援NeuralNetwork backend，**不支援MLProgram**。切換backend再寫Swift算子是另一個實作工程，不是一行註冊就完成，也不能跳過完整正例parity。因此本輪沒有添加猜測性的ROI converter。
+
+**較有原始資料支持的替代研究：完整ONNX → ONNX Runtime CPU，再評估iOS。** [torchvision0.22官方模型文件](https://github.com/pytorch/vision/blob/v0.22.0/torchvision/models/detection/keypoint_rcnn.py#L392) 明確描述固定batch／固定input尺寸可匯出ONNX；[官方symbolic註冊 L69–98](https://github.com/pytorch/vision/blob/v0.22.0/torchvision/ops/_register_onnx_ops.py#L69) 對 `torchvision::roi_align` 有opset16的ONNX `RoiAlign`，保留sampling ratio、spatial scale，依aligned選 `half_pixel`／`output_half_pixel`，NMS也有官方symbolic。這比無現成CoreML註冊更具體，但本checkpoint尚未實際匯出ONNX，不能先宣稱成功。
+
+- [ONNX Runtime1.22 CPU kernel表 L358](https://github.com/microsoft/onnxruntime/blob/v1.22.0/docs/OperatorKernels.md#L358) 明確有RoiAlign16+、float32／float64與int64 batch indices。首次研究應使用完整CPU runtime，保留ROI／NMS，不先砍operators做minimal build。用相同FrozenBN PyTorch eager輸出比對ONNX模型的全部輸出；必須有非空官方鴿子結果並另測不同instance數，不能再以全空輸出通過驗收。
+- 官方提供 [iOS `onnxruntime-objc`](https://onnxruntime.ai/docs/get-started/with-obj-c.html)，可透過bridging header從Swift呼叫；[mobile說明](https://onnxruntime.ai/docs/tutorials/mobile/) 指預建mobile package包含完整ONNX算子集。[iOS build](https://onnxruntime.ai/docs/build/ios.html) 有arm64裝置支援。這是獨立runtime路線，**不需要把ONNX再轉成CoreML**。
+- [ORT1.22 LICENSE](https://github.com/microsoft/onnxruntime/blob/v1.22.0/LICENSE) 是MIT；runtime MIT不會替模型／照片重新授權，仍各自保留模型CC BY4及相關notices。CoreML EP只接管支援的子圖，[官方支援表](https://onnxruntime.ai/docs/execution-providers/CoreML-ExecutionProvider.html#supported-operators)未列RoiAlign，不能承諾全圖或ROI跑ANE。
+- 即使ONNX CPU parity通過，約237MB權重及完整RCNN對手機記憶體／延遲的成本仍需實測；不得據CPU kernel存在宣稱適合即時追焦。下一步是隔離的ONNX CPU研究，不是Appintegration或發布model artifact。
+
+本輪版本來源已保存在 ignored `normalization-ort-sources.json`，其中factory SHA-256 `e07c7046ba7c9497ddca2f0adde06ae2fb2d6d1acbf1b65cd87861fa95478ec2`、coreml9 ops `eaa4573cb55028fd08e2e73c61e45fc6d2a337702a48448ee1b223cd6190edd2`、ORT1.22 LICENSE `2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c`。未新增App依賴或改發布閘門。
 
 ### 真正眼／頭點、單張推論依賴及限制
 
@@ -167,7 +196,7 @@ smoke 來源為[官方 project page](https://urs-waldmann.github.io/i-muppet/) �
 - [PigeonSuperModel 官方教學](https://pigeonsupermodel.com/HowToPigeonSuperModel.html) 有真正 left/right eye、head 與直接模型 tar.gz URL；[官方條件頁](https://pigeonsupermodel.com/GetInTouch.html) 同時說 MIT 及 "intended for research/academic use only"。本輪 GitLab API／LICENSE 連線逾時，未取得 tar.gz 或 checkpoint 校驗碼。用途文字需釐清，不能只摘 MIT。
 - [Roboflow Bird Head Pose](https://universe.roboflow.com/bird-annotation/bird-head-pose-estimation) 有 `/9` deployed keypoint model；CC BY 4.0 的引用段落明確指 dataset，未明確指該權重。現行 [Roboflow 方案](https://roboflow.com/pricing) 允許各方案透過 Inference／MCP 下載部分模型，**舊的「一定要付費才能下載」說法已不可靠**；實際可下載性與公開 IPA 再散布範圍仍須針對此模型查明。未使用帳號或 API key 取得權重。
 
-## 建議的可執行順序（未執行）
+## 執行順序與進度
 
 1. **已完成** I-MuPPET `weights/muppet_600.pt` 單檔 Range 取得、完整 SHA-256／CRC32、靜態 pickle 與 tensor shape audit，結果見上方。CC BY 4.0 attribution、轉換修改說明仍應隨未來轉換成果保留。沒有下載全部 1.3 GB，也沒有執行任何 loader。
 2. 在隔離的 opt-in macOS 研究工作流程試驗純 torchvision 重建＋`weights_only=True`，不自動下載 ImageNet／COCO 額外權重；明確固定 torchvision 與 PyTorch。先證實完整 state_dict 可重建，再調查 RPN／ROIAlign／NMS 的 Core ML 支援及固定尺寸輸出策略；遇不支援算子記錄具體 blocker，不移除必要運算後冒稱 parity。

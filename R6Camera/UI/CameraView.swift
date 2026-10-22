@@ -148,7 +148,6 @@ struct CameraView: View {
                     .accessibilityValue(feedbackFixture ? String(camera.captureFeedback) : "")
             }.padding(.leading, 12).padding(.trailing, 8).padding(.vertical, 7)
                 .frame(width: photo.minX, height: size.height, alignment: .topLeading)
-                .accessibilityIdentifier("camera.leftRail")
             Color.clear.frame(width: photo.width, height: size.height).allowsHitTesting(false)
             VStack(alignment: .trailing, spacing: 7) {
                 HStack {
@@ -191,7 +190,6 @@ struct CameraView: View {
                 }
             }.padding(.horizontal, 12).padding(.vertical, 7)
                 .frame(width: size.width - photo.maxX, height: size.height, alignment: .topTrailing)
-                .accessibilityIdentifier("camera.rightRail")
         }.buttonStyle(.plain).lineLimit(1).minimumScaleFactor(0.65)
     }
     private var feedbackFixture: Bool {

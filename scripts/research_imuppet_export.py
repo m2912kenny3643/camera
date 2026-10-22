@@ -200,15 +200,29 @@ def convert(path, report):
     require(all(torch.isfinite(t).all().item() for t in state.values()), "Nonfinite checkpoint tensor")
     for key, shape in HEAD_SHAPES.items():
         require(list(state[key].shape) == shape, f"Unexpected shape: {key}")
-    model = torchvision.models.detection.keypointrcnn_resnet50_fpn(
-        weights=None, weights_backbone=None, num_classes=2, num_keypoints=7)
+    # Match the author's pretrained_backbone=True normalization policy without
+    # downloading ImageNet weights. The all-None factory would select plain BN.
+    from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
+    from torchvision.ops.misc import FrozenBatchNorm2d
+    backbone = resnet_fpn_backbone(backbone_name="resnet50", weights=None,
+                                  norm_layer=FrozenBatchNorm2d, trainable_layers=0)
+    model = torchvision.models.detection.KeypointRCNN(backbone, num_classes=2, num_keypoints=7)
+    frozen_norms = [module for module in model.modules() if type(module) is FrozenBatchNorm2d]
+    require(len(frozen_norms) == 53 and not any(isinstance(module, torch.nn.BatchNorm2d) for module in model.modules()),
+            "Unexpected backbone normalization architecture")
+    emit(report, "normalization_architecture", normalization="torchvision.ops.misc.FrozenBatchNorm2d",
+         count=len(frozen_norms), eps=sorted({float(module.eps) for module in frozen_norms}),
+         external_weights=None, trainable_layers=0, ordinary_batch_norm_count=0)
     # Preserve OrderedDict._metadata so torchvision's versioned FPN/RPN migrations run.
     incompatible = model.load_state_dict(state, strict=True)
     require(not incompatible.missing_keys and not incompatible.unexpected_keys, "Strict loading did not match")
     model.cpu().float().eval()
     emit(report, "strict_load_passed", tensor_count=len(state), elements=59161568,
          head_shapes=HEAD_SHAPES, missing_keys=[], unexpected_keys=[],
-         checkpoint_metadata_preserved=True, publisher_code_executed=False, packages=PACKAGES)
+         checkpoint_metadata_preserved=True, publisher_code_executed=False, packages=PACKAGES,
+         normalization="torchvision.ops.misc.FrozenBatchNorm2d", frozen_norm_count=len(frozen_norms),
+         frozen_norm_eps=sorted({float(module.eps) for module in frozen_norms}),
+         external_weights=None, backbone_trainable_layers=0)
     del state
 
     class FullRCNN(torch.nn.Module):
