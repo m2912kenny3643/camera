@@ -32,7 +32,7 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 self.tracker.reset()
                 self.settings = settings
                 var cleared = self.tracker.result
-                cleared.focusAction = .hold
+                cleared.focusAction = settings.autofocus == .manual ? .none : .scene
                 self.publish(cleared, aspect: max(self.lastAspect, 1), histogram: [])
             }
             self.settings = settings

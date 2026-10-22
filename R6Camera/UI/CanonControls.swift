@@ -5,7 +5,7 @@ enum CameraControl: String, CaseIterable, Identifiable {
     case autofocus = "對焦操作", subject = "要偵測的主體", eye = "眼睛偵測", drive = "驅動模式"
     case whiteBalance = "白平衡", style = "相片風格", format = "影像畫質", lens = "鏡頭切換"
     case kelvin = "色溫", manualFocus = "手動對焦", contrast = "對比", saturation = "飽和度"
-    case sharpness = "銳利度", hue = "色調", stickiness = "遮擋寬限", sensitivity = "候選切換靈敏度", review = "拍後檢視"
+    case sharpness = "銳利度", hue = "色調", stickiness = "遮擋寬限", sensitivity = "候選切換靈敏度"
     case area = "自動對焦區域", meter = "測光模式"
     var id: String { rawValue }
     var isAF: Bool { [.area, .autofocus, .subject, .eye, .manualFocus, .stickiness, .sensitivity].contains(self) }
@@ -31,7 +31,6 @@ enum CameraControl: String, CaseIterable, Identifiable {
         case .hue: return String(format: "%+.1f", s.hue)
         case .stickiness: return String(format: "%.1f 秒", s.trackingStickiness)
         case .sensitivity: return String(format: "%.1f", s.switchSensitivity)
-        case .review: return s.reviewSeconds == 0 ? "關閉" : "\(s.reviewSeconds) 秒"
         case .area: return "全區域 · 觸控指定"
         case .meter: return "系統測光"
         }

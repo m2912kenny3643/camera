@@ -10,6 +10,7 @@ struct CameraView: View {
     @State private var magnification = false
     @State private var pinchStart: CGFloat?
     @State private var notice: String?
+    @State private var feedback = CaptureFeedback()
     enum Panel: String, Identifiable { case menu, playback; var id: String { rawValue } }
     var body: some View {
         GeometryReader { proxy in
@@ -34,6 +35,16 @@ struct CameraView: View {
             do { try await Task.sleep(nanoseconds: 4_000_000_000) } catch { return }
             notice = nil
         }
+        .task(id: camera.captureFeedback) {
+            let event = camera.captureFeedback
+            guard feedback.begin(event: event, at: Date.timeIntervalSinceReferenceDate) else { return }
+            do { try await Task.sleep(nanoseconds: UInt64(CaptureFeedback.duration * 1_000_000_000)) } catch {
+                feedback.finish(event: event)
+                return
+            }
+            feedback.finish(event: event)
+        }
+        .onDisappear { feedback.cancel() }
         .fullScreenCover(item: $panel) { item in
             switch item {
             case .menu: CameraSettingsView(camera: camera)
@@ -58,7 +69,6 @@ struct CameraView: View {
                     Image(uiImage: fixture).resizable().scaledToFill().frame(width: g.size.width, height: g.size.height).allowsHitTesting(false)
                 }
                 Color.clear.contentShape(Rectangle()).onTapGesture { point in
-                    camera.reviewImage = nil
                     camera.tap(at: ViewfinderGeometry.normalized(point, imageAspect: camera.frameAspect, size: g.size))
                 }.simultaneousGesture(MagnifyGesture().onChanged { value in
                     if pinchStart == nil { pinchStart = camera.zoom }
@@ -68,10 +78,17 @@ struct CameraView: View {
                 if camera.settings.autofocus != .manual {
                     TrackingOverlay(result: camera.tracking, eyes: camera.settings.eyes, aspect: camera.frameAspect).allowsHitTesting(false)
                 }
-                if let image = camera.reviewImage { Image(uiImage: image).resizable().scaledToFit().background(.black).allowsHitTesting(false) }
+                TimelineView(.animation(paused: !feedback.isActive)) { context in
+                    Rectangle().strokeBorder(.white, lineWidth: 2).opacity(feedback.opacity(at: context.date.timeIntervalSinceReferenceDate))
+                }
+                    .allowsHitTesting(false).accessibilityHidden(true)
+                if camera.isUIFixture && ProcessInfo.processInfo.environment["R6_UI_FEEDBACK_TEST"] == "1" {
+                    Button("模擬拍攝 \(camera.captureFeedback)") { camera.simulateCaptureFeedback() }.accessibilityIdentifier("fixture.capture")
+                }
                 if camera.countdown > 0 { Text("\(camera.countdown)").font(.system(size: 64, weight: .bold)).shadow(radius: 5) }
                 if !camera.isRunning && !camera.isUIFixture { Text(camera.status).font(.caption).padding(12).background(.black.opacity(0.8)) }
-            }.clipped()
+            }.clipped().accessibilityElement(children: .contain).accessibilityIdentifier("camera.viewfinder")
+                .accessibilityValue(feedback.isActive ? "拍攝回饋" : "即時取景")
         }
     }
     private func hud(unit: CGFloat) -> some View {

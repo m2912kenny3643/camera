@@ -77,8 +77,8 @@ struct CameraControlEditor: View {
     }
     private var description: String {
         switch control {
-        case .autofocus: return "點選識別主體後持續追焦；空白處點選為單次對焦"
-        case .subject: return "白框僅提示候選主體；觸控後才啟動鏡頭追焦"
+        case .autofocus: return "待選時基本自動對焦；觸控指定追焦，空白處單次對焦"
+        case .subject: return "白框提示候選，不控制對焦位置；觸控後指定追焦"
         case .eye: return "指定主體優先：眼睛 → 頭部 → 身體"
         case .style: return "獨立調校的近似風格；RAW 保留原始資料"
         case .manualFocus: return "手動調整鏡頭焦距；不改變倍率"
@@ -103,7 +103,6 @@ struct CameraControlEditor: View {
         case .style: return values(PictureStyle.allCases, selected: s.style, title: { $0.rawValue }) { v in camera.update { $0.style = v } }
         case .format: return values(PhotoFormat.allCases.filter { camera.supportsRAW || $0 != .raw }, selected: s.format, title: { $0.rawValue }) { v in camera.update { $0.format = v } }
         case .lens: return values([false, true], selected: s.lockLens, title: { $0 ? "鎖定" : "自動" }) { v in camera.update { $0.lockLens = v } }
-        case .review: return values([0, 2, 4], selected: s.reviewSeconds, title: { $0 == 0 ? "關閉" : "\($0) 秒" }) { v in camera.update { $0.reviewSeconds = v } }
         case .area, .meter: return [CameraChoice(title: control.value(s), selected: true, action: {})]
         case .shutter:
             var result = values(CameraSettings.shutterSpeeds, selected: s.shutterSeconds, title: CameraSettings.shutterLabel) { v in

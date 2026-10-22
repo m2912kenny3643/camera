@@ -59,7 +59,8 @@ struct SubjectDetection: Identifiable {
 }
 
 enum FocusAction: Equatable {
-    case none, hold
+    /// Scene AF keeps the preview usable without following a candidate's coordinates.
+    case none, scene, hold
     case single(CGPoint), continuous(CGPoint)
 }
 struct FocusConfiguration: Equatable {
@@ -92,7 +93,7 @@ struct SubjectTracker {
     mutating func reset() {
         self = SubjectTracker()
     }
-    mutating func unlock() { reset(); result.focusAction = .hold }
+    mutating func unlock() { reset(); result.focusAction = .scene }
     mutating func select(at point: CGPoint, eyes: EyePriority = .automatic) {
         guard let subject = result.candidates.filter({ $0.bounds.contains(point) })
             .min(by: { $0.bounds.area < $1.bounds.area }) else {
@@ -128,7 +129,7 @@ struct SubjectTracker {
                 result.selected = nil
                 result.missing = false
                 result.lost = true
-                result.focusAction = .hold
+                result.focusAction = .scene
                 return result
             }
             if var match = matches.first?.0 {
@@ -150,12 +151,14 @@ struct SubjectTracker {
                     result.lost = true
                     result.selected = nil
                     result.missing = false
+                    result.focusAction = .scene
                     return result
                 }
                 result.selected = nil
             }
         }
-        // Candidate changes never instruct the lens. Only explicit selection enables tracking.
+        // Scene AF has no candidate coordinates. Only explicit selection enables subject AF.
+        result.focusAction = .scene
         result.lost = false
         let best = candidates.max { rank($0) < rank($1) }
         if result.selected == nil {

@@ -68,7 +68,6 @@ struct CameraSettings: Codable, Equatable {
     var grid = true
     var histogram = true
     var peaking = false
-    var reviewSeconds = 2
     var contrast: Double = 0
     var saturation: Double = 0
     var sharpness: Double = 0

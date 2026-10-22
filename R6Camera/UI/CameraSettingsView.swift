@@ -15,7 +15,6 @@ struct CameraSettingsView: View {
         switch tab {
         case 0: return [[.format, .whiteBalance, .style, .drive, .exposure], [.mode, .shutter, .iso, .kelvin, .lens], [.contrast, .saturation, .sharpness, .hue]]
         case 1: return [[.autofocus, .subject, .eye, .stickiness, .sensitivity], [.manualFocus]]
-        case 2: return [[.review]]
         default: return [[]]
         }
     }
@@ -54,7 +53,7 @@ struct CameraSettingsView: View {
                                 .accessibilityIdentifier("menu.\(control.rawValue)")
                         }
                         if tab == 1 {
-                            Text("觸控前白框待選；識別主體觸控後藍框追焦，空白處單次對焦。").font(.system(size: 10)).foregroundStyle(.gray).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
+                            Text("待選時基本自動對焦；觸控主體藍框追焦，空白處單次對焦。").font(.system(size: 10)).foregroundStyle(.gray).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
                             Text("鳥眼／鳥頭模型尚未通過授權與準確度驗收；目前鳥類僅身體辨識。").font(.system(size: 10)).foregroundStyle(.gray).frame(maxWidth: .infinity, alignment: .leading)
                             if safePage == 1 { toggleRow("峰值邊緣輔助", path: \.peaking) }
                             menuRow("解除觸控對焦", value: "清除") { camera.unlockTracking() }
@@ -66,6 +65,10 @@ struct CameraSettingsView: View {
                             menuRow("相機鍵", value: "快門；不使用輕按／滑動") {}
                             menuRow("重設拍攝設定", value: "SET") { resetPrompt = true }
                             menuRow("iPhone 權限設定", value: "開啟") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
+                        }
+                        if tab == 2 {
+                            menuRow("播放照片", value: "返回主畫面後按 ▶") { dismiss() }
+                            Text("拍攝後保持即時取景，僅以四邊白框提示；不顯示照片回顯。").font(.system(size: 11)).foregroundStyle(.gray).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 6)
                         }
                         if tab == 4 || tab == 5 {
                             ForEach(["C1", "C2", "C3"], id: \.self) { name in

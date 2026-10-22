@@ -25,6 +25,12 @@ jobs:
           sudo xcode-select -s /Applications/Xcode_27.0.app/Contents/Developer
           xcodebuild -version
           xcodebuild -showsdks
+      - name: Inspect public hardware capture API
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          sdk=$(xcrun --sdk iphoneos --show-sdk-path)
+          find "$sdk/System/Library/Frameworks/AVKit.framework/Headers" -name '*CaptureEvent*.h' -exec cat {} + | tee build/capture-event-api.log
       - name: Install project generator
         run: brew install xcodegen
       - name: Download bundled offline subject model

@@ -18,10 +18,11 @@ final class SubjectTrackerTests: XCTestCase {
         XCTAssertTrue(lost.lost)
         XCTAssertNil(lost.selected)
         XCTAssertFalse(lost.locked)
-        XCTAssertEqual(lost.focusAction, .hold)
+        XCTAssertEqual(missing.focusAction, .hold)
+        XCTAssertEqual(lost.focusAction, .scene)
         let candidate = tracker.update([person(0.7)], at: 2.2, settings: settings)
         XCTAssertFalse(candidate.locked)
-        XCTAssertEqual(candidate.focusAction, .none)
+        XCTAssertEqual(candidate.focusAction, .scene)
     }
     func testRecoveryWithinGracePeriodKeepsIdentity() {
         var tracker = SubjectTracker()
@@ -51,7 +52,7 @@ final class SubjectTrackerTests: XCTestCase {
         XCTAssertTrue(ambiguous.lost)
         XCTAssertNil(ambiguous.selected)
         XCTAssertFalse(ambiguous.locked)
-        XCTAssertEqual(ambiguous.focusAction, .hold)
+        XCTAssertEqual(ambiguous.focusAction, .scene)
     }
     func testCategoryFilteringAndDisableClearsLock() {
         var tracker = SubjectTracker()
@@ -70,13 +71,13 @@ final class SubjectTrackerTests: XCTestCase {
             XCTAssertEqual(result.y, original.y, accuracy: 0.00001)
         }
     }
-    func testCandidateFramesNeverRequestLensFocus() {
+    func testCandidatesRequestSceneAFWithoutSubjectFocusPoints() {
         var tracker = SubjectTracker()
         for i in 0..<20 {
             let frame = tracker.update([person(0.1 + CGFloat(i) * 0.01)], at: Double(i) * 0.12, settings: CameraSettings())
             XCTAssertNotNil(frame.selected)
             XCTAssertFalse(frame.locked)
-            XCTAssertEqual(frame.focusAction, .none)
+            XCTAssertEqual(frame.focusAction, .scene)
         }
     }
     func testMissedTouchRequestsExactlyOneSingleAF() {
@@ -92,7 +93,7 @@ final class SubjectTrackerTests: XCTestCase {
             XCTAssertEqual(frame.focusAction, .none)
         }
     }
-    func testTouchEnablesContinuousFocusAndUnlockStopsIt() {
+    func testTouchEnablesSubjectFocusAndUnlockRestoresSceneAF() {
         var tracker = SubjectTracker()
         _ = tracker.update([person(0.1)], at: 0, settings: CameraSettings())
         tracker.select(at: CGPoint(x: 0.15, y: 0.3))
@@ -101,8 +102,24 @@ final class SubjectTrackerTests: XCTestCase {
         let moving = tracker.update([person(0.12)], at: 0.1, settings: CameraSettings())
         if case .continuous = moving.focusAction {} else { XCTFail("Locked movement must drive lens") }
         tracker.unlock()
-        XCTAssertEqual(tracker.result.focusAction, .hold)
-        XCTAssertEqual(tracker.update([person(0.14)], at: 0.2, settings: CameraSettings()).focusAction, .none)
+        XCTAssertEqual(tracker.result.focusAction, .scene)
+        XCTAssertEqual(tracker.update([person(0.14)], at: 0.2, settings: CameraSettings()).focusAction, .scene)
+    }
+    func testSceneAFWorksWithoutDetectionsAndMFNeverRequestsAF() {
+        var tracker = SubjectTracker()
+        var settings = CameraSettings()
+        XCTAssertEqual(tracker.update([], at: 0, settings: settings).focusAction, .scene)
+        settings.autofocus = .manual
+        let manual = tracker.update([person(0.1)], at: 0.1, settings: settings)
+        XCTAssertEqual(manual.focusAction, .none)
+        XCTAssertNil(manual.selected)
+    }
+    func testUnlockFromFixedPointRestoresSceneAF() {
+        var tracker = SubjectTracker()
+        tracker.select(at: CGPoint(x: 0.8, y: 0.8))
+        tracker.unlock()
+        XCTAssertNil(tracker.result.touchPoint)
+        XCTAssertEqual(tracker.result.focusAction, .scene)
     }
     func testEyeHeadBodyFallbackUsesOneRegion() {
         var target = person(0.2)
@@ -124,6 +141,12 @@ final class SubjectTrackerTests: XCTestCase {
         store.save(settings, key: "C1")
         XCTAssertEqual(store.load("C1"), settings)
         XCTAssertNil(store.load("C2"))
+    }
+    func testLegacyReviewSettingDoesNotBreakPresetDecoding() throws {
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(CameraSettings())) as? [String: Any])
+        json["reviewSeconds"] = 4
+        let decoded = try JSONDecoder().decode(CameraSettings.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertEqual(decoded, CameraSettings())
     }
     func testISOAutoDoesNotReleaseManualShutter() {
         var settings = CameraSettings(); settings.program = .manual

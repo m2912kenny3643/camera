@@ -17,9 +17,11 @@ final class ZoomDialTests: XCTestCase {
     }
     func testLogarithmicDragAndLimits() {
         let dial = ZoomDialGeometry(size: CGSize(width: 852, height: 360))
-        XCTAssertEqual(dial.zoom(start: 1, drag: 100, range: 0.5...10), 2, accuracy: 0.001)
-        XCTAssertEqual(dial.zoom(start: 1, drag: -1000, range: 0.5...10), 0.5)
-        XCTAssertEqual(dial.zoom(start: 1, drag: 1000, range: 0.5...10), 10)
+        // Screen coordinates increase downward: dragging down must zoom in.
+        XCTAssertEqual(dial.zoom(start: 1, verticalTranslation: 100, range: 0.5...10), 2, accuracy: 0.001)
+        XCTAssertEqual(dial.zoom(start: 1, verticalTranslation: -100, range: 0.5...10), 0.5, accuracy: 0.001)
+        XCTAssertEqual(dial.zoom(start: 1, verticalTranslation: -1000, range: 0.5...10), 0.5)
+        XCTAssertEqual(dial.zoom(start: 1, verticalTranslation: 1000, range: 0.5...10), 10)
     }
     func testLowerZoomIsAbovePointerAndHigherZoomBelow() {
         let dial = ZoomDialGeometry(size: CGSize(width: 852, height: 360))

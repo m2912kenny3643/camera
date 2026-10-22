@@ -47,12 +47,13 @@ struct ZoomWheel: View {
                     .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
                         dismissTask?.cancel()
                         if startZoom == nil { startZoom = camera.zoom }
-                        let value = dial.zoom(start: startZoom ?? camera.zoom, drag: -drag.translation.height, range: camera.zoomRange)
+                        let value = dial.zoom(start: startZoom ?? camera.zoom, verticalTranslation: drag.translation.height, range: camera.zoomRange)
                         let stop = [CGFloat(0.5), 1, 2].first { camera.zoomRange.contains($0) && abs(log2(value / $0)) < 0.035 }
                         if stop != snap, stop != nil { UISelectionFeedbackGenerator().selectionChanged() }
                         snap = stop; camera.setZoom(stop ?? value)
                     }.onEnded { _ in startZoom = nil; scheduleDismiss() })
                     .accessibilityLabel("縮放轉盤").accessibilityIdentifier("zoom.wheel")
+                    .accessibilityValue(String(format: "%.2f", Double(camera.zoom)))
                     .accessibilityAdjustableAction { direction in
                         camera.setZoom(camera.zoom * (direction == .increment ? 1.1 : 1 / 1.1)); scheduleDismiss()
                     }

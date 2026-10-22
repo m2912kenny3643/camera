@@ -12,7 +12,7 @@ struct ZoomDialGeometry {
     func point(angle: CGFloat, inset: CGFloat = 0) -> CGPoint {
         CGPoint(x: center.x + (radius - inset) * cos(angle), y: center.y + (radius - inset) * sin(angle))
     }
-    func zoom(start: CGFloat, drag: CGFloat, range: ClosedRange<CGFloat>) -> CGFloat {
-        min(range.upperBound, max(range.lowerBound, start * pow(2, drag / 100)))
+    func zoom(start: CGFloat, verticalTranslation: CGFloat, range: ClosedRange<CGFloat>) -> CGFloat {
+        min(range.upperBound, max(range.lowerBound, start * pow(2, verticalTranslation / 100)))
     }
 }

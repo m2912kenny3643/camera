@@ -22,8 +22,8 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     private var exposureTimer: DispatchSourceTimer?
     private var appliedExposureLock = false
     private var captureTask: Task<Void, Never>?
-    private var focusLocked = false
-    private var focusWasSingle = false
+    private enum LensStrategy { case scene, subject, point, manual }
+    private var lensStrategy = LensStrategy.scene
     private var sawFocusAdjustment = false
     private var lastFocusPoint = CGPoint(x: -1, y: -1)
     private var trackingFocusSuspended = false
@@ -43,6 +43,10 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         #endif
     }
     func equivalentFocalLength(at zoom: CGFloat) -> CGFloat? { focalAtOne.map { $0 * zoom } }
+    func simulateCaptureFeedback() {
+        guard isUIFixture else { return }
+        captureFeedback &+= 1
+    }
 
     @Published var settings: CameraSettings
     @Published var isRunning = false
@@ -67,7 +71,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     @Published var countdown = 0
     @Published var pendingPhotos = 0
     @Published var lastPhotoURL: URL?
-    @Published var reviewImage: UIImage?
+    @Published private(set) var captureFeedback = 0
     @Published var battery: Float = -1
 
     override init() {
@@ -85,6 +89,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                 self.histogram = histogram
                 guard self.settings.autofocus != .manual else { return }
                 switch result.focusAction {
+                case .scene: self.resumeSceneFocus()
                 case .continuous(let point): self.focusOnImagePoint(point, single: false)
                 case .single(let point): self.focusOnImagePoint(point, single: true, force: true)
                 case .hold: self.holdTrackedFocus()
@@ -177,7 +182,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                     if !self.configured { try self.configureSession(initial: startupSettings) }
                     if !self.session.isRunning {
                         self.trackingFocusSuspended = false
-                        self.focusLocked = false
+                        self.lensStrategy = .scene
                         self.lastFocusPoint = CGPoint(x: -1, y: -1)
                         try self.applyToDevice(startupSettings)
                         self.session.startRunning()
@@ -195,7 +200,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         vision.reset()
         singleFocused = false
         sessionQueue.async {
-            self.focusLocked = false
+            self.lensStrategy = .scene
             self.trackingFocusSuspended = false
             self.lastTrackedLensPosition = nil
             self.lastFocusPoint = CGPoint(x: -1, y: -1)
@@ -257,7 +262,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                 guard let self else { return }
                 self.sessionQueue.async {
                     if device.isAdjustingFocus { self.sawFocusAdjustment = true }
-                    else if self.sawFocusAdjustment && self.appliedSettings.autofocus == .single {
+                    else if self.sawFocusAdjustment && self.lensStrategy == .point {
                         self.sawFocusAdjustment = false
                         DispatchQueue.main.async { self.singleFocused = true }
                     }
@@ -311,11 +316,12 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         if changedAF { trackingFocusSuspended = false; lastTrackedLensPosition = nil }
         appliedSettings = settings
         if settings.autofocus == .manual {
+            lensStrategy = .manual
             if device.isLockingFocusWithCustomLensPositionSupported {
                 device.setFocusModeLocked(lensPosition: settings.manualFocus, completionHandler: nil)
             }
-        } else if changedAF || !focusLocked {
-            if device.isFocusModeSupported(.locked) { device.focusMode = .locked }
+        } else if changedAF || lensStrategy == .scene {
+            configureSceneFocus(device)
         }
         if settings.requiresExactExposure {
             let seconds = settings.controlsShutter ? settings.shutterSeconds : device.exposureDuration.seconds
@@ -421,13 +427,35 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         else { vision.unlock() }
         singleFocused = false
     }
+    /// Called with the device configuration lock held, on sessionQueue only.
+    private func configureSceneFocus(_ device: AVCaptureDevice) {
+        if device.isFocusPointOfInterestSupported { device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5) }
+        if device.isFocusModeSupported(.continuousAutoFocus) { device.focusMode = .continuousAutoFocus }
+        lensStrategy = .scene
+        trackingFocusSuspended = false
+        lastTrackedLensPosition = nil
+        lastFocusPoint = CGPoint(x: -1, y: -1)
+    }
+    private func resumeSceneFocus() {
+        sessionQueue.async {
+            guard self.session.isRunning, self.appliedSettings.autofocus != .manual,
+                  let device = self.device else { return }
+            // White-box updates must not repeatedly reset the system's AF search.
+            guard self.lensStrategy != .scene || device.focusMode != .continuousAutoFocus else { return }
+            do {
+                try device.lockForConfiguration()
+                defer { device.unlockForConfiguration() }
+                self.configureSceneFocus(device)
+            } catch { self.report(error) }
+        }
+    }
     private func holdTrackedFocus() {
         sessionQueue.async {
             guard !self.trackingFocusSuspended, self.session.isRunning, let device = self.device else { return }
             do {
                 try device.lockForConfiguration()
                 defer { device.unlockForConfiguration() }
-                let position = self.focusWasSingle ? device.lensPosition : self.lastTrackedLensPosition
+                let position = self.lensStrategy == .point ? device.lensPosition : self.lastTrackedLensPosition
                 if device.isLockingFocusWithCustomLensPositionSupported, let position {
                     device.setFocusModeLocked(lensPosition: position, completionHandler: nil)
                     self.trackingFocusSuspended = true
@@ -445,7 +473,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         sessionQueue.async {
             guard self.session.isRunning, let device = self.device else { return }
             self.lastTrackedLensPosition = device.lensPosition
-            if !force && !self.trackingFocusSuspended && hypot(self.lastFocusPoint.x - devicePoint.x, self.lastFocusPoint.y - devicePoint.y) < 0.015 { return }
+            if !force && self.lensStrategy == .subject && !self.trackingFocusSuspended && hypot(self.lastFocusPoint.x - devicePoint.x, self.lastFocusPoint.y - devicePoint.y) < 0.015 { return }
             do {
                 try device.lockForConfiguration()
                 defer { device.unlockForConfiguration() }
@@ -456,8 +484,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                     self.trackingFocusSuspended = false
                     self.lastFocusPoint = devicePoint
                 }
-                self.focusLocked = true
-                self.focusWasSingle = single
+                self.lensStrategy = single ? .point : .subject
                 self.sawFocusAdjustment = false
                 if !self.appliedExposureLock && !self.appliedSettings.requiresExactExposure,
                    device.isExposurePointOfInterestSupported {
@@ -524,7 +551,9 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             } else { capture = AVCapturePhotoSettings(format: [AVVideoCodecKey: codec]) }
             capture.maxPhotoDimensions = self.photoOutput.maxPhotoDimensions
             capture.photoQualityPrioritization = settings.requiresExactExposure ? .speed : .balanced
-            let job = PhotoJob(settings: settings, type: useHEIF ? .heic : .jpeg) { [weak self] result in
+            let job = PhotoJob(settings: settings, type: useHEIF ? .heic : .jpeg, onCaptured: { [weak self] in
+                DispatchQueue.main.async { self?.captureFeedback &+= 1 }
+            }) { [weak self] result in
                 guard let self else { return }
                 self.renderQueue.async { self.finishPhoto(result, id: capture.uniqueID) }
             }
@@ -555,23 +584,15 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                 try raw.write(to: target, options: .atomic)
                 rawURL = target
             }
-            var rendered = output.processed
             do {
-                rendered = try PhotoRenderer.render(output.processed, settings: output.settings, type: output.type, context: CIContext())
+                let rendered = try PhotoRenderer.render(output.processed, settings: output.settings, type: output.type, context: CIContext())
                 try rendered.write(to: url, options: .atomic)
             } catch {
-                rendered = output.processed
                 self.report(self.cameraError("風格處理失敗，已保留原始照片：\(error.localizedDescription)"))
             }
             DispatchQueue.main.async {
                 self.lastPhotoURL = url
-                self.reviewImage = UIImage(data: rendered)
                 self.status = "照片已存於 App"
-                if output.settings.reviewSeconds > 0 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + Double(output.settings.reviewSeconds)) {
-                        if self.lastPhotoURL == url { self.reviewImage = nil }
-                    }
-                } else { self.reviewImage = nil }
             }
             saveToLibrary(url, rawURL: rawURL)
         } catch { report(error) }
@@ -629,17 +650,24 @@ private final class PhotoJob: NSObject, AVCapturePhotoCaptureDelegate {
     }
     let settings: CameraSettings
     let type: UTType
+    let onCaptured: () -> Void
     let completion: (Result<Output, Error>) -> Void
     private var processed: Data?
     private var raw: Data?
     private var processingError: Error?
-    init(settings: CameraSettings, type: UTType, completion: @escaping (Result<Output, Error>) -> Void) {
-        self.settings = settings; self.type = type; self.completion = completion
+    private var captured = false
+    init(settings: CameraSettings, type: UTType, onCaptured: @escaping () -> Void, completion: @escaping (Result<Output, Error>) -> Void) {
+        self.settings = settings; self.type = type; self.onCaptured = onCaptured; self.completion = completion
     }
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         if let error { processingError = error; return }
         guard let data = photo.fileDataRepresentation() else { return }
         if photo.isRawPhoto { raw = data } else { processed = data }
+    }
+    func photoOutput(_ output: AVCapturePhotoOutput, didCapturePhotoFor resolvedSettings: AVCaptureResolvedPhotoSettings) {
+        guard !captured else { return }
+        captured = true
+        onCaptured()
     }
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings, error: Error?) {
         if let error = error ?? processingError { completion(.failure(error)); return }
