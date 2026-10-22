@@ -30,6 +30,7 @@ final class CameraUITests: XCTestCase {
         let wheel = app.descendants(matching: .any)["zoom.wheel"]
         XCTAssertTrue(wheel.waitForExistence(timeout: 3))
         XCTAssertGreaterThanOrEqual(wheel.frame.minX, viewfinder.frame.maxX - 1)
+        XCTAssertGreaterThanOrEqual(wheel.frame.minY, quick.frame.maxY)
         capture("02-Zoom-wheel")
         let originalZoom = Double(wheel.value as? String ?? "")!
         let start = wheel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))

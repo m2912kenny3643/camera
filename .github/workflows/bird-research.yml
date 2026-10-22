@@ -11,6 +11,14 @@ on:
         options:
           - synthet
           - imuppet
+      backend:
+        description: I-MuPPET probe backend; synthet supports Core ML only
+        type: choice
+        required: true
+        default: coreml
+        options:
+          - coreml
+          - onnx
 
 permissions:
   contents: read
@@ -23,12 +31,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Validate candidate backend
+        if: inputs.candidate == 'synthet' && inputs.backend == 'onnx'
+        run: |
+          echo 'The ONNX probe is scoped to the imuppet candidate.'
+          exit 1
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - name: Install pinned research tools
         run: |
-          python -m pip install torch==2.7.0 torchvision==0.22.0 coremltools==9.0 numpy==1.26.4
+          python -m pip install torch==2.7.0 torchvision==0.22.0 numpy==1.26.4
+      - name: Install Core ML research backend
+        if: inputs.backend == 'coreml'
+        run: python -m pip install coremltools==9.0
+      - name: Install ONNX research backend
+        if: inputs.candidate == 'imuppet' && inputs.backend == 'onnx'
+        run: python -m pip install --only-binary=:all: onnx==1.17.0 onnxruntime==1.22.0
       - name: Install synthet-specific tools
         if: inputs.candidate == 'synthet'
         run: python -m pip install ultralytics==8.4.67 opencv-python==4.11.0.86
@@ -38,10 +57,15 @@ jobs:
           R6_BIRD_PERSONAL_RESEARCH: "1"
         run: python scripts/research_bird_export.py --convert
       - name: Restricted I-MuPPET full RCNN feasibility
-        if: inputs.candidate == 'imuppet'
+        if: inputs.candidate == 'imuppet' && inputs.backend == 'coreml'
         env:
           R6_BIRD_PERSONAL_RESEARCH: "1"
         run: python scripts/research_imuppet_export.py --convert
+      - name: Restricted I-MuPPET full ONNX CPU feasibility
+        if: inputs.candidate == 'imuppet' && inputs.backend == 'onnx'
+        env:
+          R6_BIRD_PERSONAL_RESEARCH: "1"
+        run: python scripts/research_imuppet_export.py --onnx-probe
       - name: Upload descriptors and metrics only
         if: always()
         uses: actions/upload-artifact@v4

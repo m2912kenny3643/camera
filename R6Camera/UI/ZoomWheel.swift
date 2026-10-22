@@ -11,9 +11,9 @@ struct ZoomWheel: View {
     var body: some View {
         GeometryReader { proxy in
             let dial = ZoomDialGeometry(size: proxy.size)
-            ZStack(alignment: .trailing) {
+            ZStack(alignment: .bottomTrailing) {
                 Canvas { context, size in
-                    context.fill(Path(ellipseIn: CGRect(x: dial.center.x - dial.radius, y: dial.center.y - dial.radius, width: dial.radius * 2, height: dial.radius * 2)), with: .color(.black.opacity(0.7)))
+                    context.fill(Path(ellipseIn: CGRect(x: dial.center.x - dial.radius, y: dial.center.y - dial.radius, width: dial.radius * 2, height: dial.radius * 2)), with: .color(Color(white: 0.08)))
                     for i in -16...80 {
                         let value = pow(2, CGFloat(i) / 16)
                         guard camera.zoomRange.contains(value) else { continue }
@@ -43,8 +43,9 @@ struct ZoomWheel: View {
                     if let focal = camera.equivalentFocalLength(at: camera.zoom) {
                         context.draw(Text("≈\(Int(focal.rounded()))MM").font(.system(size: 10)).foregroundColor(.yellow), at: CGPoint(x: label.x, y: label.y + 17))
                     }
-                }.mask(alignment: .trailing) { Rectangle().frame(width: railWidth) }.allowsHitTesting(false)
-                Rectangle().fill(.clear).contentShape(Rectangle()).frame(width: min(railWidth, proxy.size.width * 0.19))
+                }.mask(alignment: .bottomTrailing) { Rectangle().frame(width: railWidth, height: max(0, proxy.size.height - 80)) }.allowsHitTesting(false)
+                Rectangle().fill(.clear).contentShape(Rectangle())
+                    .frame(width: min(railWidth, proxy.size.width * 0.19), height: max(0, proxy.size.height - 80))
                     .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("zoom.dial")).onChanged { drag in
                         dismissTask?.cancel()
                         let previous = previousTouch ?? drag.startLocation

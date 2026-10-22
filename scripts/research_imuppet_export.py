@@ -179,16 +179,82 @@ def compare(reference, actual, report, event, case):
     require(passed, f"{event} failed for {case}; tolerances unchanged")
 
 
-def convert(path, report):
+def onnx_probe(wrapper, inputs, references, export_case, positive_coverage, report):
+    import numpy as np
+    import torch
+    import onnx
+    import onnxruntime as ort
+    destination = WORK / "imuppet-full-rcnn.onnx"
+    emit(report, "onnx_export_started", case=export_case, opset=17, dynamo=False,
+         dynamic_output_instance_axes=True, rpn_roi_nms_removed=False)
+    torch.onnx.export(wrapper, (torch.from_numpy(inputs[export_case]),), str(destination),
+                      dynamo=False, opset_version=17, input_names=["image_tensor"], output_names=OUTPUTS,
+                      dynamic_axes={name: {0: "instances"} for name in OUTPUTS}, external_data=False)
+    model = onnx.load(str(destination), load_external_data=False)
+    require(all(t.data_location != onnx.TensorProto.EXTERNAL for t in model.graph.initializer),
+            "Unexpected external ONNX tensor data")
+    onnx.checker.check_model(model, full_check=True)
+    operators = Counter()
+
+    def visit(nodes):
+        for node in nodes:
+            operators[f"{node.domain or 'ai.onnx'}::{node.op_type}"] += 1
+            for attribute in node.attribute:
+                if attribute.type == onnx.AttributeProto.GRAPH:
+                    visit(attribute.g.node)
+                elif attribute.type == onnx.AttributeProto.GRAPHS:
+                    for graph in attribute.graphs:
+                        visit(graph.node)
+
+    visit(model.graph.node)
+    for function in model.functions:
+        visit(function.node)
+    emit(report, "onnx_checker_passed", model_sha256=sha_file(destination), model_bytes=destination.stat().st_size,
+         ir_version=model.ir_version, opsets={x.domain or "ai.onnx": x.version for x in model.opset_import},
+         complete_operator_counts=dict(sorted(operators.items())), model_uploaded=False)
+    require(operators["ai.onnx::RoiAlign"] > 0 and operators["ai.onnx::NonMaxSuppression"] > 0,
+            "Full RCNN export lacks required RoiAlign/NMS; no operator-removal workaround allowed")
+    del model
+    options = ort.SessionOptions()
+    options.intra_op_num_threads = 2
+    options.inter_op_num_threads = 1
+    options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+    started = time.monotonic()
+    session = ort.InferenceSession(str(destination), sess_options=options, providers=["CPUExecutionProvider"])
+    require(session.get_providers() == ["CPUExecutionProvider"], "Unexpected execution provider")
+    emit(report, "ort_cpu_session_created", initialization_seconds=time.monotonic()-started,
+         providers=session.get_providers(), machine=platform.machine(), operating_system=platform.system(),
+         input_descriptors=[{"name": x.name, "shape": x.shape, "type": x.type} for x in session.get_inputs()],
+         output_descriptors=[{"name": x.name, "shape": x.shape, "type": x.type} for x in session.get_outputs()],
+         intra_op_threads=2, inter_op_threads=1, iphone_performance=False)
+    for name, value in inputs.items():
+        session.run(OUTPUTS, {"image_tensor": value})  # One explicit warm-up per case.
+        timings = []
+        for _ in range(3):
+            started = time.monotonic()
+            actual = session.run(OUTPUTS, {"image_tensor": value})
+            timings.append((time.monotonic()-started)*1000)
+        compare(references[name], actual, report, "onnx_cpu_parity", name)
+        emit(report, "mac_cpu_latency", case=name, milliseconds=timings,
+             median_ms=float(np.median(timings)), maximum_observed_ms=max(timings),
+             warmup_calls=1, measured_calls=3, includes_image_preprocessing=False,
+             includes_model_resize_rpn_roi_nms=True, iphone_performance=False)
+    require(positive_coverage, "empty-positive-coverage: ONNX CPU probe completed without a nonempty publisher pigeon case; full RCNN validation remains incomplete")
+    emit(report, "experiment_passed", backend="onnx_cpu", publisher_pigeon_nonempty=True,
+         bird_accuracy_evaluated=False, device_latency_evaluated=False, bundled=False)
+
+
+def convert(path, report, use_onnx=False):
     require(os.environ.get("R6_BIRD_PERSONAL_RESEARCH") == "1", "Explicit opt-in environment required")
-    require(platform.system() == "Darwin", "Actual Core ML runtime experiment requires macOS")
-    for name, version in PACKAGES.items():
+    require(platform.system() == "Darwin", "This runtime feasibility experiment is scoped to macOS")
+    packages = {name: version for name, version in PACKAGES.items() if name != "coremltools"}
+    packages.update({"onnx": "1.17.0", "onnxruntime": "1.22.0"} if use_onnx else {"coremltools": "9.0"})
+    for name, version in packages.items():
         require(importlib.metadata.version(name).split("+")[0] == version, f"Pin required: {name}=={version}")
     os.environ["TORCH_FORCE_WEIGHTS_ONLY_LOAD"] = "1"
     import numpy as np
     import torch
     import torchvision
-    import coremltools as ct
     torch.set_num_threads(2)
     torch.manual_seed(0)
     torch.serialization.clear_safe_globals()
@@ -219,7 +285,7 @@ def convert(path, report):
     model.cpu().float().eval()
     emit(report, "strict_load_passed", tensor_count=len(state), elements=59161568,
          head_shapes=HEAD_SHAPES, missing_keys=[], unexpected_keys=[],
-         checkpoint_metadata_preserved=True, publisher_code_executed=False, packages=PACKAGES,
+         checkpoint_metadata_preserved=True, publisher_code_executed=False, packages=packages,
          normalization="torchvision.ops.misc.FrozenBatchNorm2d", frozen_norm_count=len(frozen_norms),
          frozen_norm_eps=sorted({float(module.eps) for module in frozen_norms}),
          external_weights=None, backbone_trainable_layers=0)
@@ -262,6 +328,9 @@ def convert(path, report):
              limitation=None if positive_coverage else "empty-positive-coverage: no nonempty verified publisher pigeon input",
              continue_conversion_probe=True)
         trace_case = "publisher_pigeon" if positive_coverage else nonempty[0] if nonempty else "gray"
+        if use_onnx:
+            onnx_probe(wrapper, inputs, references, trace_case, positive_coverage, report)
+            return
         emit(report, "full_trace_started", case=trace_case, check_trace=False, explicit_all_input_parity=True)
         traced = torch.jit.trace(wrapper, torch.from_numpy(inputs[trace_case]), strict=True, check_trace=False)
         operators = sorted(set(node.kind() for node in traced.inlined_graph.nodes()))
@@ -271,6 +340,7 @@ def convert(path, report):
             actual = [x.cpu().numpy() for x in traced(torch.from_numpy(value))]
             compare(references[name], actual, report, "trace_parity", name)
     # Keep the entire detector graph. Unsupported necessary ops fail with a real blocker.
+    import coremltools as ct
     emit(report, "coreml_conversion_started", compute_precision="FLOAT32", full_rcnn=True)
     converted = ct.convert(traced, convert_to="mlprogram", minimum_deployment_target=ct.target.iOS18,
                            inputs=[ct.TensorType(name="image_tensor", shape=(1, 3, 640, 640))],
@@ -293,18 +363,22 @@ def convert(path, report):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--convert", action="store_true")
+    backend = parser.add_mutually_exclusive_group()
+    backend.add_argument("--convert", action="store_true", help="Full Core ML probe (existing default conversion path)")
+    backend.add_argument("--onnx-probe", action="store_true", help="Full ONNX/ORT CPU probe; no Core ML conversion")
     parser.add_argument("--checkpoint", type=Path, default=WORK / "muppet_600.pt")
     args = parser.parse_args()
     WORK.mkdir(parents=True, exist_ok=True)
     report = {"candidate": "imuppet", "checkpoint_sha256": SHA, "events": [],
-              "accuracy_claim": False, "app_integration": False}
+              "accuracy_claim": False, "app_integration": False,
+              "backend": "onnx_cpu" if args.onnx_probe else "coreml"}
     stage = "retrieval"
     try:
         retrieve(args.checkpoint, report)
         stage = "static_audit"; inspect(args.checkpoint, report)
-        if args.convert:
-            stage = "strict_load_inference_trace_coreml"; convert(args.checkpoint, report)
+        if args.convert or args.onnx_probe:
+            stage = "strict_load_inference_onnx_cpu" if args.onnx_probe else "strict_load_inference_trace_coreml"
+            convert(args.checkpoint, report, use_onnx=args.onnx_probe)
     except Exception as error:
         emit(report, "experiment_blocked", stage=stage, error_type=type(error).__name__,
              error=str(error)[:6000], no_operator_removal=True, no_permissive_load_retry=True)
