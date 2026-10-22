@@ -296,10 +296,15 @@ def convert(path, report, use_onnx=False):
             super().__init__(); self.network = network
 
         def forward(self, image):
-            prediction = self.network([image[0]])[0]
+            # Publisher's non-COCO video path applies Normalize(0.5, 0.5)
+            # before the detector's own transform; the single-image helper alone omits it.
+            prediction = self.network([(image[0] - 0.5) / 0.5])[0]
             return tuple(prediction[name] for name in OUTPUTS)
 
     wrapper = FullRCNN(model).eval()
+    emit(report, "publisher_preprocessing", external_input="RGB float32 0..1 NCHW",
+         before_detector="(image - 0.5) / 0.5", detector_internal_transform_retained=True,
+         source="https://github.com/urs-waldmann/i-muppet/blob/a8588a792bd98dfc1513abcf809bfbdb40e30918/utils/video_stream_utils.py")
     rng = np.random.default_rng(7)
     gradient = np.broadcast_to(np.linspace(0, 1, 640, dtype=np.float32), (1, 3, 640, 640)).copy()
     inputs = {"gray": np.full((1, 3, 640, 640), 0.5, dtype=np.float32),

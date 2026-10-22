@@ -198,6 +198,12 @@ smoke 來源為[官方 project page](https://urs-waldmann.github.io/i-muppet/) �
 
 ## 執行順序與進度
 
+### 完整前處理的補充核對
+
+後續核對原作者固定 commit 的 [video_stream_utils.py](https://github.com/urs-waldmann/i-muppet/blob/a8588a792bd98dfc1513abcf809bfbdb40e30918/utils/video_stream_utils.py) 發現：非 COCO 的鴿子路徑在 RGB／ToTensor 之後，另呼叫 `normalize_tensor_image(mean=(0.5,0.5,0.5), std=(0.5,0.5,0.5))`，才送入 detector 自己的 transform。只看 `infer_one_image` helper 不足以重建作者完整流程。研究 wrapper 已將這一步納入圖內，外部輸入仍為 RGB 0…1；原 detector resize／ImageNet normalize／RPN／ROI／NMS 皆保留。
+
+因此 run 39805007324／39806932373 的全空輸出不可用來判斷原模型辨識能力；這兩輪的 strict-load 與 Core ML `torchvision::roi_align` 不支援紀錄仍是實際探測結果，但不代表正確前處理後的整體準確度。新的完整前處理實驗另記結果，仍不得省略真實圖片／真機評估。
+
 1. **已完成** I-MuPPET `weights/muppet_600.pt` 單檔 Range 取得、完整 SHA-256／CRC32、靜態 pickle 與 tensor shape audit，結果見上方。CC BY 4.0 attribution、轉換修改說明仍應隨未來轉換成果保留。沒有下載全部 1.3 GB，也沒有執行任何 loader。
 2. 在隔離的 opt-in macOS 研究工作流程試驗純 torchvision 重建＋`weights_only=True`，不自動下載 ImageNet／COCO 額外權重；明確固定 torchvision 與 PyTorch。先證實完整 state_dict 可重建，再調查 RPN／ROIAlign／NMS 的 Core ML 支援及固定尺寸輸出策略；遇不支援算子記錄具體 blocker，不移除必要運算後冒稱 parity。
 3. 先測鴿子，按明確物種範圍報告；至少 100 張獨立、可合法用於評測且人工標記的真實圖片，包含小眼、側面、遮擋、多鳥與負例。分開報告眼點誤差、錯指他鳥、眼不可見時誤報、head/body fallback 與 PyTorch→Core ML 數值一致性。confidence 門檻須以實測校準，不能把任何輸出座標當成可靠眼點。
