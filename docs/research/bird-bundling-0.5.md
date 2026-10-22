@@ -198,6 +198,16 @@ smoke 來源為[官方 project page](https://urs-waldmann.github.io/i-muppet/) �
 
 ## 執行順序與進度
 
+### 完整 ONNX／CPU 實驗：已通過數值比對，尚非手機功能完成
+
+[run 39823277101](https://github.com/m2912kenny3643/camera/actions/runs/39823277101) 來源 `b2fe76a53ba6e14b2616a021f35aceed291d2f43`，PyTorch 2.7.0／torchvision 0.22.0／ONNX 1.17.0／ORT 1.22.0、macOS arm64 CPU、2 inference threads。使用作者完整前處理及 FrozenBN，strict load 零 missing／unexpected keys。完整模型保留 8 個 RoiAlign、2 個 NonMaxSuppression 與動態 instance 軸，ONNX checker 通過；沒有砍掉 RPN／ROI／NMS。
+
+匯出檔 236,836,457 bytes，SHA-256 `33e0c75b7babe8c114ef6e6ceb0361db2452481af97b929ef2ea769eb39c4839`。未上傳權重／模型檔；僅上傳並核對 JSON，[完整結果](imuppet-onnx-result-0.5.json)。灰階／漸層為0個候選、雜訊1個、官方鴿圖2個；這證明輸出數量變化時的數值路線，**不是鳥類準確率**，鴿圖兩個候選也不代表兩個正確目標。官方鴿圖的眼／其他關鍵點最大差 `0.0000763` pixel，keypoint score 最大差 `0.0000839`，四案例均在原訂門檻內。
+
+各案例一次 warm-up 後僅測3次，CPU median 1711–1830 ms／張；鴿圖 1830 ms，最大1850 ms。它含模型內 resize／RPN／ROI／NMS，但不含外部解碼／影像準備，不能當 iPhone 端到端 latency、P95 或即時追焦能力。100張獨立真實圖與手機持續使用均未執行。完整圖可在 ORT 執行的路線已驗證；iOS runtime 整合、精度／物種泛化、記憶體與速度最佳化仍未完成，不封裝入本次驗證 IPA。
+
+此前無額外 Normalize 的 ONNX probe run 39822863183 只可作舊前處理的診斷，不作功能驗收依據。Core ML 9 的 `torchvision::roi_align` 缺少 converter 仍是另一個實際阻擋；不能以本次 ONNX 成功宣稱 Core ML 也已完成。
+
 ### 完整前處理的補充核對
 
 後續核對原作者固定 commit 的 [video_stream_utils.py](https://github.com/urs-waldmann/i-muppet/blob/a8588a792bd98dfc1513abcf809bfbdb40e30918/utils/video_stream_utils.py) 發現：非 COCO 的鴿子路徑在 RGB／ToTensor 之後，另呼叫 `normalize_tensor_image(mean=(0.5,0.5,0.5), std=(0.5,0.5,0.5))`，才送入 detector 自己的 transform。只看 `infer_one_image` helper 不足以重建作者完整流程。研究 wrapper 已將這一步納入圖內，外部輸入仍為 RGB 0…1；原 detector resize／ImageNet normalize／RPN／ROI／NMS 皆保留。

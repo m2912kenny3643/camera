@@ -23,6 +23,14 @@
 
 ## 鳥眼與交付限制
 
-本版模型散布閘門仍 fail-closed，`docs/bird-release.json` 不會無證據改成可散布。已找到官方 CC BY 4.0 發布的 I-MuPPET 鴿子眼／頭權重並完成單檔完整校驗與靜態檢查，正在隔離 macOS 做完整 RCNN 研究；其物種泛化、Core ML 與真機效能不得由授權或轉換數值推論。研究與候選見 [鳥眼打包研究](research/bird-bundling-0.5.md)。驗證 IPA 不含鳥眼權重，不代表完整計畫已完成。
+本版模型散布閘門仍 fail-closed，`docs/bird-release.json` 不會無證據改成可散布。已找到官方 CC BY 4.0 發布的 I-MuPPET 鴿子眼／頭權重，完成單檔完整校驗、靜態檢查及正確前處理的完整 ONNX／ORT CPU 數值比對。模型約237MB、Mac CPU中位數約1.7–1.8秒／張，不能當即時追焦或 iPhone 效能；Core ML仍遇到ROIAlign缺少converter。100張獨立圖片、iOS runtime整合及真機測速未完成。研究與候選見 [鳥眼打包研究](research/bird-bundling-0.5.md) 及 [實際JSON](research/imuppet-onnx-result-0.5.json)。驗證 IPA 不含鳥眼權重，不代表完整計畫已完成。
 
 沒有 iPhone 真機可供此執行環境測試，連拍 10 秒的 95% 間隔偏差、實際鏡頭合焦、按鍵、水平儀方向、真實鳥眼準確度與推論延遲均不能宣稱通過。音量鍵仍可能觸發快門，沿用使用者接受的未解決項。
+
+## 最終可交付驗證版
+
+- App 來源 `be398da1054a6b8b21236c82f2aa44363da41f02`，版本0.5.0／build5，分支 `codex/r6-0.4`。後續研究／文件提交不改此 IPA 的來源。
+- [GitHub build 39822660059](https://github.com/m2912kenny3643/camera/actions/runs/39822660059)：50項 Swift核心、51項 iOS單元、8項 Python與1個完整UI流程均通過；UI流程115.651秒。
+- [實際六畫面](design/0.5/actual-ui-six.png)：中央4:3、側欄不觸發對焦、右側轉盤不覆蓋Q區、七個驅動glyph、SET／返回、曝光模式、水平儀與拍攝回饋已經自動化及截圖核對。固定素材不是辨識準確度證明。
+- unsigned iPhone arm64 IPA 8,557,438 bytes，SHA256 `3bcb1f8e98bfbf874be9ec0dbd679aa99e63f2beaf3e28960c4105d416082d25`；需重新簽署後安裝。已核對 Info.plist、固定LandscapeRight、Mach-O arm64、執行位元、SOURCE-COMMIT、完整AGPL授權及模型內容。
+- 含基礎Apple主體模型，不含BirdEyePose或I-MuPPET權重；完整鳥眼／真機驗收仍未完成。轉盤頂部刻度留白是截圖QA後的小修正，已重跑全部原生測試。
