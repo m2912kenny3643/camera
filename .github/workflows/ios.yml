@@ -60,12 +60,15 @@ jobs:
             build/R6Camera-unsigned.ipa
             build/model-provenance.json
           if-no-files-found: error
+      - name: Boot dedicated iPhone simulator
+        timeout-minutes: 7
+        run: python3 scripts/prepare_simulator.py
       - name: Test fixed landscape and secondary menus
         timeout-minutes: 12
         run: |
           set -euo pipefail
           xcodebuild test -project R6Camera.xcodeproj -scheme R6Camera \
-            -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' \
+            -destination "platform=iOS Simulator,id=$R6_SIMULATOR_UDID" \
             -only-testing:R6CameraUITests -parallel-testing-enabled NO \
             -test-timeouts-enabled YES -default-test-execution-time-allowance 180 \
             -maximum-test-execution-time-allowance 180 \
