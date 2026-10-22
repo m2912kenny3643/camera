@@ -1,0 +1,51 @@
+{
+  "version": "0.6.0",
+  "build": 6,
+  "commit": "d95078c7d29971b8cbce252803f008f98f4ad5a6",
+  "branch": "codex/r6-0.4",
+  "run": "https://github.com/m2912kenny3643/camera/actions/runs/39830124625",
+  "core_tests": 59,
+  "native_unit_tests": 60,
+  "python_tests": 36,
+  "ui_flows": 1,
+  "ui_duration_seconds": 87.439,
+  "level_center_tolerance_points": 1,
+  "level_large_and_small_center_checks": "passed",
+  "burst_request_trials_hplus": [
+    8,
+    10,
+    12
+  ],
+  "burst_request_trials_h": [
+    4,
+    6
+  ],
+  "actual_device_fps_verified": false,
+  "hardware_tests_run": false,
+  "bird_model_bundled": false,
+  "independent_real_bird_images_evaluated": 0,
+  "bird_accuracy_verified": false,
+  "bird_device_performance_verified": false,
+  "full_plan_complete": false,
+  "volume_key_capture_unresolved": true,
+  "ipa_bytes": 8580288,
+  "ipa_sha256": "8a97ca88db9f3595fefaa14dde8783616e04b889c0eeb6ec45d8cb1953924f8d",
+  "orientation": "landscapeRight",
+  "architecture": "arm64",
+  "signed": false,
+  "compiler_warning_categories": [
+    "'isVideoOrientationSupported' was deprecated in iOS 17.0: Use -isVideoRotationAngleSupported: instead [#DeprecatedDeclaration]",
+    "'videoOrientation' was deprecated in iOS 17.0: Use -videoRotationAngle instead [#DeprecatedDeclaration]",
+    "Metadata extraction skipped, no AppIntents.framework dependency found",
+    "capture of 'cancellation' with non-Sendable type 'CaptureCancellation' in a '@Sendable' closure [#SendableClosureCaptures]",
+    "capture of 'self' with non-Sendable type 'CameraController' in a '@Sendable' closure [#SendableClosureCaptures]"
+  ],
+  "new_compiler_warning_categories": [],
+  "remaining": [
+    "Bird weight source/distribution evidence",
+    "100 independent real-image bird evaluation",
+    "iPhone bird accuracy/10Hz/P95 benchmark",
+    "Physical 10s burst/RAW/48MP/long exposure/slow storage",
+    "Physical keys/focus/level directions and sustained use"
+  ]
+}
