@@ -23,14 +23,16 @@ Approved scope: user-confirmed next-version plan, 2026-10-22.
   letterbox, [1,23,8400], confidence gates, NMS, real eyes/crown/beak only,
   observed head envelope and body fallback without changing selected identity.
 
-## Awaiting required UI confirmation
+## Confirmed UI implementation
 
 Six deterministic design proposals are in `docs/design/0.4/` and are explicitly
-labelled proposals, not running-app screenshots. User was asked to confirm
-them before a major HUD/Q/MENU/editor re-layout. Until then the prior UI remains,
-including controls that still need exposing for timer count, level, drive labels,
-AUTO underlining and per-program editing restrictions. A whole redesign must not
-be claimed complete from these core changes.
+labelled proposals, not running-app screenshots. The user explicitly confirmed
+them. HUD/Q/MENU/editor layout now follows them: compact rails, live-view bottom
+palettes, magenta AF pages, red shooting pages, two-group real image formats,
+observed-format readout, H+/H/L glyphs, timer count, large/small level and AUTO
+underlining. Editors keep drafts, SET applies only the edited fields, and Back
+cancels. A+ restrictions preserve personal settings. INFO cycles full/level/clean.
+The latest UI source still needs native validation and actual screenshot review.
 
 ## Bird model release gate
 
@@ -52,6 +54,10 @@ not compilation. Native core tests, iOS archive and UI tests must run in GitHub
 Actions against the exact committed source. Python packaging and release-gate
 tests can run locally. Existing uncommitted UI-fixture/test-export improvements
 from the prior iteration are preserved.
+
+Core baseline 93686a4 passed run 39762042185: 37 Swift tests, 5 Python tests,
+iPhone archive and one 65.232-second UI flow, including zoom gestures and capture
+feedback. This validates the core/pre-redesign baseline, not later UI changes.
 
 No actual 100-image bird evaluation or phone latency result exists. Hardware
 camera/volume buttons, actual focusing, continuous preview, burst timing, level

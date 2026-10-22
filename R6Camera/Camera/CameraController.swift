@@ -70,6 +70,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     @Published var zoom: CGFloat = 1
     @Published var zoomRange: ClosedRange<CGFloat> = 0.5...10
     @Published var supportsRAW = false
+    @Published private(set) var photoResolution: String?
     @Published var supportsNativeZoom = false
     @Published var controlsActive = false
     @Published var singleFocused = false
@@ -289,9 +290,11 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         let minimum = device.minAvailableVideoZoomFactor / referenceZoom
         let maximum = min(device.maxAvailableVideoZoomFactor / referenceZoom, 10)
         let raw = !photoOutput.availableRawPhotoPixelFormatTypes.isEmpty
+        let dimensions = photoOutput.maxPhotoDimensions
         DispatchQueue.main.async {
             self.zoomRange = minimum...max(minimum, maximum)
             self.supportsRAW = raw
+            self.photoResolution = "\(dimensions.width) × \(dimensions.height)"
             self.supportsNativeZoom = nativeZoom
         }
         configured = true

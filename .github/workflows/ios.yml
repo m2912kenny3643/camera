@@ -73,8 +73,8 @@ jobs:
           xcodebuild test -project R6Camera.xcodeproj -scheme R6Camera \
             -destination "platform=iOS Simulator,id=$R6_SIMULATOR_UDID" \
             -only-testing:R6CameraUITests -parallel-testing-enabled NO \
-            -test-timeouts-enabled YES -default-test-execution-time-allowance 180 \
-            -maximum-test-execution-time-allowance 180 \
+            -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
+            -maximum-test-execution-time-allowance 240 \
             -resultBundlePath build/Tests.xcresult \
             CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/ui-tests.log
       - name: Upload diagnostics

@@ -10,10 +10,10 @@ struct CameraSettingsView: View {
     @State private var resetPrompt = false
     private let names = ["拍攝", "AF", "播放", "設定", "自訂", "我的選單"]
     private let symbols = ["camera.fill", "AF", "play.rectangle", "wrench.fill", "camera.badge.ellipsis", "star.fill"]
-    private let colors: [Color] = [.red, .purple, .blue, .yellow, .orange, .green]
+    private let colors: [Color] = [.red, Color(red: 0.92, green: 0.1, blue: 0.58), .blue, .yellow, .orange, .green]
     private var pages: [[CameraControl]] {
         switch tab {
-        case 0: return [[.format, .whiteBalance, .style, .drive, .exposure], [.mode, .shutter, .iso, .kelvin, .lens], [.contrast, .saturation, .sharpness, .hue]]
+        case 0: return [[.format, .whiteBalance, .style, .drive, .exposure, .level], [.mode, .shutter, .iso, .kelvin, .lens], [.contrast, .saturation, .sharpness, .hue]]
         case 1: return [[.autofocus, .subject, .eye, .stickiness, .sensitivity], [.manualFocus]]
         default: return [[]]
         }
@@ -54,15 +54,15 @@ struct CameraSettingsView: View {
                         }
                         if tab == 1 {
                             Text("待選時基本自動對焦；觸控主體藍框追焦，空白處單次對焦。").font(.system(size: 10)).foregroundStyle(.gray).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
-                            Text("鳥眼／鳥頭模型尚未通過授權與準確度驗收；目前鳥類僅身體辨識。").font(.system(size: 10)).foregroundStyle(.gray).frame(maxWidth: .infinity, alignment: .leading)
+                            Text(camera.birdStatus).font(.system(size: 10)).foregroundStyle(.gray).frame(maxWidth: .infinity, alignment: .leading)
                             if safePage == 1 { toggleRow("峰值邊緣輔助", path: \.peaking) }
                             menuRow("解除觸控對焦", value: "清除") { camera.unlockTracking() }
                         }
                         if tab == 3 {
                             toggleRow("格線", path: \.grid)
                             toggleRow("亮度直方圖", path: \.histogram)
-                            menuRow("螢幕方向", value: "橫向 · 相機鍵朝上") {}
-                            menuRow("相機鍵", value: "快門；不使用輕按／滑動") {}
+                            menuRow(CameraControl.level.rawValue, value: camera.settings.levelSize.rawValue) { editor = .level }.accessibilityIdentifier("menu.水平儀顯示大小")
+                            Text("固定橫向 · 相機鍵在上緣 · 相機鍵只作快門").font(.system(size: 11)).foregroundStyle(.gray)
                             menuRow("重設拍攝設定", value: "SET") { resetPrompt = true }
                             menuRow("iPhone 權限設定", value: "開啟") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
                         }
@@ -93,7 +93,9 @@ struct CameraSettingsView: View {
                 .overlay {
                     if let editor {
                         Color.black.opacity(0.5).onTapGesture { self.editor = nil }
-                        CameraControlEditor(camera: camera, control: editor) { self.editor = nil }.frame(width: min(610, g.size.width - 90), height: min(300, g.size.height - 30))
+                        CameraControlEditor(camera: camera, control: editor) { self.editor = nil }.id(editor)
+                            .frame(width: g.size.width - 56, height: g.size.height - 16)
+                            .frame(width: g.size.width, height: g.size.height).background(.black)
                     }
                 }
         }.preferredColorScheme(.dark)
