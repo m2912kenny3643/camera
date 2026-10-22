@@ -1,10 +1,14 @@
 # Bird eye and head localization feasibility
 
-## Actual macOS experiment — initial result
+## Actual macOS experiments
 
 [Research run 39702376853](https://github.com/m2912kenny3643/camera/actions/runs/39702376853) successfully loaded the hash-pinned checkpoint through the restricted weights-only loader and exported Core ML. Measured input is RGB image `image`, 640×640; measured output is float32 `var_1345`, shape `[1,23,8400]`. The checkpoint has 2,672,601 parameters. No model was published or added to the app.
 
 Initial synthetic parity failed the unchanged 5-pixel / 0.03 probability gates: gray 36.5184 / 0.16813; gradient 9.24063 / 0.04521; noise 7.94821 / 0.05574. Ultralytics' Core ML helper omits compute_precision, so ML Program defaults to FP16 even when half=False. The next experiment explicitly requests FLOAT32 compute and compares original PyTorch, export-prepared PyTorch, and Core ML independently. A successful export is not sufficient to enable bird-eye AF; real image accuracy and iPhone performance remain untested.
+
+**FLOAT32 result:** [Research run 39704478800](https://github.com/m2912kenny3643/camera/actions/runs/39704478800) passed all three comparisons (original→prepared, prepared→Core ML, original→Core ML) for gray, gradient and seeded-noise inputs, with unchanged gates. Actual float32 output is `pose_output`, shape [1,23,8400]. Original→Core ML maximum coordinate errors were 0.004242, 0.001160 and 0.000946 pixels respectively; maximum probability errors were about 0.00001013, 0.00000440 and 0.00000992. No weights/model artifact was uploaded. This validates conversion consistency only, not bird-eye accuracy or iPhone latency.
+
+The user explicitly chose to deliver the other app fixes and research code first, with **no bird-eye model in this IPA**. Real-image accuracy, app integration and iPhone performance remain future work. The following source investigation is historical context; its previously unverified retrieval/export gates are superseded by the measured results above.
 
 Checked: 2026-10-22 (Asia/Taipei). Model-source research; no app code or datasets changed. The checkpoint was downloaded into ignored `build/research/bird-eye/` for static inspection only. It was **not loaded, unpickled, executed, or exported**.
 

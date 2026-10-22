@@ -6,7 +6,7 @@ Checked: 2026-10-22 (Asia/Taipei). Target: iPhone 17 / iOS 27; project deploymen
 
 The documented public capture-event API does not establish a way to keep Camera Control as a shutter while excluding both volume buttons. Treat this requirement as a blocker, not a completed feature. Do not invent an `event.source`, `event.button`, or input-filter property.
 
-This conclusion is based on Apple's current DocC declarations and official presentation. The actual Xcode 27 SDK headers were not available on this Windows host and have not been inspected. If a newer public SDK symbol is found, verify its declaration and availability before changing this conclusion.
+This conclusion is based on Apple's current DocC declarations, official presentation, and the actual Xcode 27 iPhoneOS public headers inspected in GitHub run 39702346520. No source/filter property was found in those headers.
 
 ## Verified API contract
 
