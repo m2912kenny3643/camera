@@ -10,8 +10,8 @@ settings:
     TARGETED_DEVICE_FAMILY: "1"
     IPHONEOS_DEPLOYMENT_TARGET: "18.0"
     CODE_SIGNING_ALLOWED: NO
-    MARKETING_VERSION: "0.3.0"
-    CURRENT_PROJECT_VERSION: "3"
+    MARKETING_VERSION: "0.4.0"
+    CURRENT_PROJECT_VERSION: "4"
 targets:
   R6Camera:
     type: application
@@ -27,6 +27,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSCameraUsageDescription: 使用相機拍攝照片、識別主體並持續對焦。
         NSPhotoLibraryAddUsageDescription: 將你拍攝的照片儲存到相簿。
+        NSMotionUsageDescription: 使用裝置方向感測器顯示電子水平儀。
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationLandscapeRight

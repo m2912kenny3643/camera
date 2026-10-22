@@ -175,4 +175,14 @@ final class SubjectTrackerTests: XCTestCase {
         XCTAssertFalse(settings.controlsShutter)
         XCTAssertTrue(settings.controlsISO)
     }
+    func testOneShotSubjectFocusDoesNotContinuouslyDriveLens() {
+        var settings = CameraSettings(); settings.autofocus = .single
+        var tracker = SubjectTracker()
+        _ = tracker.update([person(0.2)], at: 0, settings: settings)
+        tracker.select(at: CGPoint(x: 0.25, y: 0.3), mode: .single)
+        if case .single = tracker.result.focusAction {} else { XCTFail("ONE SHOT must focus once") }
+        let frame = tracker.update([person(0.21)], at: 0.1, settings: settings)
+        XCTAssertTrue(frame.locked)
+        XCTAssertEqual(frame.focusAction, .none)
+    }
 }

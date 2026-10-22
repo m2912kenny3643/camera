@@ -68,7 +68,8 @@ struct FocusConfiguration: Equatable {
     let subjects: SubjectMode
     let eyes: EyePriority
     init(_ settings: CameraSettings) {
-        mode = settings.autofocus; subjects = settings.subjects; eyes = settings.eyes
+        let effective = settings.effective
+        mode = effective.autofocus; subjects = effective.subjects; eyes = effective.eyes
     }
 }
 
@@ -94,7 +95,7 @@ struct SubjectTracker {
         self = SubjectTracker()
     }
     mutating func unlock() { reset(); result.focusAction = .scene }
-    mutating func select(at point: CGPoint, eyes: EyePriority = .automatic) {
+    mutating func select(at point: CGPoint, eyes: EyePriority = .automatic, mode: AutofocusMode = .servo) {
         guard let subject = result.candidates.filter({ $0.bounds.contains(point) })
             .min(by: { $0.bounds.area < $1.bounds.area }) else {
             result.selected = nil
@@ -110,7 +111,7 @@ struct SubjectTracker {
         result.missing = false
         result.lost = false
         result.touchPoint = nil
-        result.focusAction = .continuous(subject.focusPoint(eyes))
+        result.focusAction = mode == .single ? .single(subject.focusPoint(eyes)) : .continuous(subject.focusPoint(eyes))
     }
     mutating func update(_ detections: [SubjectDetection], at now: Double,
                          settings: CameraSettings) -> TrackingResult {
@@ -139,7 +140,7 @@ struct SubjectTracker {
                 result.missing = false
                 result.lost = false
                 if result.locked {
-                    result.focusAction = .continuous(match.focusPoint(settings.eyes))
+                    result.focusAction = settings.autofocus == .single ? .none : .continuous(match.focusPoint(settings.eyes))
                     return result
                 }
             } else {

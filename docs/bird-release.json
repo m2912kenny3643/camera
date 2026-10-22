@@ -1,0 +1,16 @@
+{
+  "model": "synthet/eye-pose-v0",
+  "revision": "6e7bd361ba84b17d81f0fb4315a44a868df5b692",
+  "checkpoint_sha256": "ec9e4b80a93eb6e2b21633e2ff2df30c49faa1eb7919dd24345c7dc295b2d1be",
+  "redistribution_verified": false,
+  "evidence": [],
+  "converted_package_sha256": null,
+  "independent_images_evaluated": 0,
+  "accuracy_report": null,
+  "device_report": null,
+  "blockers": [
+    "Publisher card MIT and actual checkpoint AGPL metadata are not yet reconciled.",
+    "CUB training-image terms do not establish unrestricted checkpoint redistribution.",
+    "No independent 100-image annotated accuracy evaluation or iPhone latency result."
+  ]
+}

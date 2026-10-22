@@ -1,5 +1,12 @@
 # Object detection model
 
+Original R6 Camera app source is licensed under AGPL-3.0-only; see the repository
+LICENSE and bundled APP-LICENSE.txt. Corresponding source:
+https://github.com/m2912kenny3643/camera (exact build in SOURCE-COMMIT.txt).
+Third-party models and system frameworks retain their respective terms.
+The 0.4 bird adapter is present in source but no bird-eye weights are bundled:
+redistribution evidence, independent accuracy and device tests are incomplete.
+
 The build downloads Apple's Core ML YOLOv3 Tiny Int8 LUT model from:
 https://ml-assets.apple.com/coreml/models/Image/ObjectDetection/YOLOv3Tiny/YOLOv3TinyInt8LUT.mlmodel
 

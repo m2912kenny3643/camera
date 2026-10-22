@@ -4,7 +4,7 @@ import SwiftUI
 import CoreImage
 import UniformTypeIdentifiers
 
-final class CameraController: NSObject, ObservableObject, AVCaptureSessionControlsDelegate {
+final class CameraController: NSObject, ObservableObject, AVCaptureSessionControlsDelegate, AVCapturePhotoOutputReadinessCoordinatorDelegate {
     let session = AVCaptureSession()
     let vision = SubjectVision()
     let sessionQueue = DispatchQueue(label: "camera.session", qos: .userInitiated)
@@ -16,6 +16,11 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     private var input: AVCaptureDeviceInput?
     private var observations: [NSKeyValueObservation] = []
     private var jobs: [Int64: PhotoJob] = [:]
+    private var renderingPhotos = 0 // sessionQueue owns both stages and total capacity.
+    private var readinessCoordinator: AVCapturePhotoOutputReadinessCoordinator?
+    private var captureCancellation: CaptureCancellation?
+    private var burstMeasurement: CaptureCancellation?
+    private var zoomCommand = 0 // main queue; latest command reconciles hardware clamping.
     private var configured = false
     private var referenceZoom: CGFloat = 1
     private var appliedSettings = CameraSettings()
@@ -53,6 +58,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     @Published var captureEnabled = true
     @Published var error: String?
     @Published var status = "正在啟動相機"
+    @Published private(set) var birdStatus = "鳥眼模型尚未載入"
     @Published var tracking = TrackingResult()
     @Published var frameAspect: CGFloat = 0.75
     @Published var histogram: [Float] = []
@@ -70,13 +76,16 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     @Published var exposureLocked = false
     @Published var countdown = 0
     @Published var pendingPhotos = 0
+    @Published private(set) var captureBusy = false
+    @Published private(set) var captureReady = false
+    @Published private(set) var burstFPS: Double?
+    @Published private(set) var burstIntervals: [Double] = []
     @Published var lastPhotoURL: URL?
     @Published private(set) var captureFeedback = 0
     @Published var battery: Float = -1
 
     override init() {
-        var restored = SettingsStore().load() ?? CameraSettings()
-        if restored.autofocus == .single { restored.autofocus = .servo }
+        let restored = SettingsStore().load() ?? CameraSettings()
         settings = restored
         super.init()
         UIDevice.current.isBatteryMonitoringEnabled = true
@@ -87,7 +96,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                 self.tracking = result
                 self.frameAspect = aspect
                 self.histogram = histogram
-                guard self.settings.autofocus != .manual else { return }
+                guard self.settings.effective.autofocus != .manual else { return }
                 switch result.focusAction {
                 case .scene: self.resumeSceneFocus()
                 case .continuous(let point): self.focusOnImagePoint(point, single: false)
@@ -108,6 +117,9 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         }
         vision.onModelError = { [weak self] message in
             DispatchQueue.main.async { self?.error = message }
+        }
+        vision.onBirdStatus = { [weak self] message in
+            DispatchQueue.main.async { self?.birdStatus = message }
         }
         notificationTokens.append(NotificationCenter.default.addObserver(
             forName: AVCaptureSession.wasInterruptedNotification, object: session, queue: .main
@@ -249,6 +261,11 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         }) { photoOutput.maxPhotoDimensions = dimensions }
         if photoOutput.isResponsiveCaptureSupported { photoOutput.isResponsiveCaptureEnabled = true }
         if photoOutput.isZeroShutterLagSupported { photoOutput.isZeroShutterLagEnabled = true }
+        DispatchQueue.main.async {
+            let coordinator = AVCapturePhotoOutputReadinessCoordinator(photoOutput: self.photoOutput)
+            coordinator.delegate = self
+            self.readinessCoordinator = coordinator
+        }
         // No AVCaptureControl is registered: hardware light-press/slide must not alter zoom.
         let nativeZoom = false
         observations = [
@@ -296,20 +313,24 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     func update(_ transform: (inout CameraSettings) -> Void) {
         let previous = settings
         transform(&settings)
-        if settings.autofocus == .single { settings.autofocus = .servo }
-        if previous.autofocus != settings.autofocus || previous.subjects != settings.subjects {
+        if previous.effective.autofocus != settings.effective.autofocus || previous.effective.subjects != settings.effective.subjects {
             holdTrackedFocus()
         }
         store.save(settings)
-        let snapshot = settings
+        let snapshot = settings.effective
         vision.configure(snapshot)
         if snapshot.autofocus != .single { singleFocused = false }
         sessionQueue.async {
             do { try self.applyToDevice(snapshot) } catch { self.report(error) }
         }
     }
-    private func applyToDevice(_ settings: CameraSettings) throws {
+    private func applyToDevice(_ requested: CameraSettings) throws {
+        let settings = requested.effective
         guard let device else { return }
+        if !settings.permitsExposureCompensation {
+            appliedExposureLock = false
+            DispatchQueue.main.async { self.exposureLocked = false }
+        }
         try device.lockForConfiguration()
         defer { device.unlockForConfiguration() }
         let changedAF = appliedSettings.autofocus != settings.autofocus
@@ -330,7 +351,8 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         } else if !appliedExposureLock && device.isExposureModeSupported(.continuousAutoExposure) {
             device.exposureMode = .continuousAutoExposure
         }
-        device.setExposureTargetBias(min(device.maxExposureTargetBias, max(device.minExposureTargetBias, Float(settings.exposureBias))), completionHandler: nil)
+        let bias = settings.permitsExposureCompensation ? settings.exposureBias : 0
+        device.setExposureTargetBias(min(device.maxExposureTargetBias, max(device.minExposureTargetBias, Float(bias))), completionHandler: nil)
         if settings.whiteBalance == .automatic {
             if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) { device.whiteBalanceMode = .continuousAutoWhiteBalance }
         } else if device.isWhiteBalanceModeSupported(.locked) {
@@ -377,7 +399,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                 } catch { report(error) }
             }
         }
-        let count = jobs.count
+        let count = jobs.count + renderingPhotos
         DispatchQueue.main.async {
             self.actualExposureOffset = device.exposureTargetOffset.isFinite ? device.exposureTargetOffset : 0
             self.actualISO = device.iso
@@ -395,7 +417,10 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         let factor = min(zoomRange.upperBound, max(zoomRange.lowerBound, zoom))
         settings.zoom = factor
         store.save(settings)
-        if isUIFixture { self.zoom = factor }
+        // Draw from touch immediately; hardware KVO must not animate the dial backwards.
+        self.zoom = factor
+        zoomCommand &+= 1
+        let command = zoomCommand
         sessionQueue.async {
             guard let device = self.device else { return }
             do {
@@ -403,21 +428,30 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                 device.videoZoomFactor = max(device.minAvailableVideoZoomFactor,
                                              min(device.maxAvailableVideoZoomFactor, factor * self.referenceZoom))
                 device.unlockForConfiguration()
-            } catch { self.report(error) }
+                let actual = device.videoZoomFactor / self.referenceZoom
+                DispatchQueue.main.async { self.reconcileZoom(actual, command: command) }
+            } catch {
+                let actual = device.videoZoomFactor / self.referenceZoom
+                DispatchQueue.main.async { self.reconcileZoom(actual, command: command) }
+                self.report(error)
+            }
         }
+    }
+    private func reconcileZoom(_ actual: CGFloat, command: Int) {
+        guard command == zoomCommand else { return }
+        zoom = actual
+        if abs(settings.zoom - actual) > 0.001 { settings.zoom = actual; store.save(settings) }
     }
     private func syncNativeZoom(_ value: CGFloat) {
-        zoom = value
-        if abs(settings.zoom - value) > 0.001 {
-            settings.zoom = value
-            store.save(settings)
-        }
+        // No hardware zoom control is registered. Ignore stale intermediate KVO values
+        // while commands are draining; the requested value already drives the dial.
+        if abs(settings.zoom - value) < 0.001 { zoom = value }
     }
     func tap(at imagePoint: CGPoint) {
-        guard isRunning || isUIFixture, settings.autofocus != .manual else { return }
+        guard isRunning || isUIFixture, settings.effective.autofocus != .manual else { return }
         singleFocused = false
         if isUIFixture {
-            fixtureTracker.select(at: imagePoint, eyes: settings.eyes)
+            fixtureTracker.select(at: imagePoint, eyes: settings.effective.eyes, mode: settings.effective.autofocus)
             tracking = fixtureTracker.result
         } else { vision.select(imagePoint) }
     }
@@ -467,7 +501,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         }
     }
     private func focusOnImagePoint(_ point: CGPoint, single: Bool, force: Bool = false) {
-        guard isRunning, settings.autofocus != .manual, let layer = previewLayer else { return }
+        guard isRunning, settings.effective.autofocus != .manual, let layer = previewLayer else { return }
         let display = ViewfinderGeometry.display(point, imageAspect: frameAspect, size: layer.bounds.size)
         let devicePoint = layer.captureDevicePointConverted(fromLayerPoint: display)
         sessionQueue.async {
@@ -495,6 +529,11 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     }
     func toggleExposureLock() {
         exposureLocked.toggle()
+        if !settings.effective.permitsExposureCompensation {
+            exposureLocked = false
+            sessionQueue.async { self.appliedExposureLock = false }
+            return
+        }
         let locked = exposureLocked
         sessionQueue.async {
             self.appliedExposureLock = locked
@@ -510,10 +549,12 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
 
     func shutter() {
         guard isRunning, captureEnabled, captureTask == nil else { return }
-        let snapshot = settings
+        let snapshot = settings.effective
+        let cancellation = CaptureCancellation()
+        captureCancellation = cancellation
         captureTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.countdown = 0; self.captureTask = nil }
+            defer { self.countdown = 0; self.captureBusy = false; self.captureTask = nil; self.captureCancellation = nil }
             for second in stride(from: snapshot.drive.delay, through: 1, by: -1) {
                 self.countdown = second
                 do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return }
@@ -521,28 +562,61 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             guard !Task.isCancelled else { return }
             self.countdown = 0
             guard !Task.isCancelled else { return }
-            self.capture(snapshot)
-        }
-    }
-    func beginBurst() {
-        guard settings.drive == .burst, isRunning, captureEnabled, captureTask == nil else { shutter(); return }
-        let snapshot = settings
-        captureTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer { self.captureTask = nil }
-            while !Task.isCancelled && self.isRunning {
-                self.capture(snapshot)
-                do { try await Task.sleep(nanoseconds: 350_000_000) } catch { break }
+            let count = snapshot.drive == .timerContinuous ? snapshot.timerCount : 1
+            var cadence = BurstCadence(fps: 1, exposure: snapshot.controlsShutter ? snapshot.shutterSeconds : self.actualShutter,
+                                       now: ProcessInfo.processInfo.systemUptime)
+            var completed = 0
+            while completed < count && !Task.isCancelled && !cancellation.isCancelled && self.isRunning && self.captureEnabled {
+                let now = ProcessInfo.processInfo.systemUptime
+                if now >= cadence.nextDeadline {
+                    let accepted = await self.capture(snapshot, cancellation: cancellation)
+                    _ = cadence.admit(at: ProcessInfo.processInfo.systemUptime, ready: accepted)
+                    self.captureBusy = !accepted
+                    if accepted { completed += 1 }
+                }
+                if completed < count {
+                    do { try await Task.sleep(nanoseconds: 20_000_000) } catch { break }
+                }
             }
         }
     }
-    func cancelCapture() { captureTask?.cancel() }
-    private func capture(_ settings: CameraSettings) {
+    func beginBurst() {
+        guard settings.drive.isBurst, isRunning, captureEnabled, captureTask == nil else { shutter(); return }
+        let snapshot = settings.effective
+        let cancellation = CaptureCancellation()
+        captureCancellation = cancellation
+        burstFPS = nil; burstIntervals = []; lastBurstExposureTime = nil
+        burstMeasurement = cancellation
+        captureTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.captureTask = nil; self.captureCancellation = nil; self.captureBusy = false }
+            var cadence = BurstCadence(fps: snapshot.drive.fps,
+                                       exposure: snapshot.controlsShutter ? snapshot.shutterSeconds : self.actualShutter,
+                                       now: ProcessInfo.processInfo.systemUptime)
+            while !Task.isCancelled && !cancellation.isCancelled && self.isRunning && self.captureEnabled {
+                if ProcessInfo.processInfo.systemUptime >= cadence.nextDeadline {
+                    let accepted = await self.capture(snapshot, cancellation: cancellation)
+                    _ = cadence.admit(at: ProcessInfo.processInfo.systemUptime, ready: accepted)
+                    self.captureBusy = !accepted
+                }
+                do { try await Task.sleep(nanoseconds: 10_000_000) } catch { break }
+            }
+        }
+    }
+    func cancelCapture() { captureCancellation?.cancel(); captureTask?.cancel() }
+    private func capture(_ settings: CameraSettings, cancellation: CaptureCancellation) async -> Bool {
+        await withCheckedContinuation { continuation in
         sessionQueue.async { [self] in
-            guard self.session.isRunning else { return }
-            // Back pressure: no unbounded RAW/full-resolution work while the button is held.
-            guard self.jobs.count < 2 else { return }
+            guard self.session.isRunning, !cancellation.isCancelled,
+                  self.photoOutput.captureReadiness == .ready,
+                  self.jobs.count < 2, self.jobs.count + self.renderingPhotos < 3 else {
+                continuation.resume(returning: false); return
+            }
             let raw = settings.format == .raw ? self.photoOutput.availableRawPhotoPixelFormatTypes.first : nil
+            guard settings.format != .raw || raw != nil else {
+                self.report(self.cameraError("目前鏡頭不支援 RAW；請重新選擇影像畫質。"))
+                cancellation.cancel(); continuation.resume(returning: false); return
+            }
             let useHEIF = settings.format == .heif && self.photoOutput.availablePhotoCodecTypes.contains(.hevc)
             let codec: AVVideoCodecType = useHEIF ? .hevc : .jpeg
             let capture: AVCapturePhotoSettings
@@ -550,24 +624,55 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                 capture = AVCapturePhotoSettings(rawPixelFormatType: raw, processedFormat: [AVVideoCodecKey: AVVideoCodecType.jpeg])
             } else { capture = AVCapturePhotoSettings(format: [AVVideoCodecKey: codec]) }
             capture.maxPhotoDimensions = self.photoOutput.maxPhotoDimensions
+            // Exact exposure requires speed prioritization on iOS; do not trade
+            // away the selected shutter/ISO to meet a burst cadence.
             capture.photoQualityPrioritization = settings.requiresExactExposure ? .speed : .balanced
             let job = PhotoJob(settings: settings, type: useHEIF ? .heic : .jpeg, onCaptured: { [weak self] in
-                DispatchQueue.main.async { self?.captureFeedback &+= 1 }
+                let timestamp = ProcessInfo.processInfo.systemUptime
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.captureFeedback &+= 1
+                    if settings.drive.isBurst && self.burstMeasurement === cancellation {
+                        if let previous = self.lastBurstExposureTime {
+                            self.burstIntervals.append(timestamp - previous)
+                            if self.burstIntervals.count > 120 { self.burstIntervals.removeFirst() }
+                            self.burstFPS = Double(self.burstIntervals.count) / self.burstIntervals.reduce(0, +)
+                        }
+                        self.lastBurstExposureTime = timestamp
+                    }
+                }
             }) { [weak self] result in
                 guard let self else { return }
-                self.renderQueue.async { self.finishPhoto(result, id: capture.uniqueID) }
+                self.sessionQueue.async {
+                    self.jobs.removeValue(forKey: capture.uniqueID)
+                    self.renderingPhotos += 1
+                    DispatchQueue.main.async { self.readinessCoordinator?.stopTrackingCaptureRequest(using: capture.uniqueID) }
+                    self.renderQueue.async { self.finishPhoto(result, id: capture.uniqueID) }
+                }
             }
             self.jobs[capture.uniqueID] = job
-            let count = self.jobs.count
+            let count = self.jobs.count + self.renderingPhotos
             DispatchQueue.main.async { self.pendingPhotos = count }
-            self.photoOutput.capturePhoto(with: capture, delegate: job)
+            DispatchQueue.main.async {
+                self.readinessCoordinator?.startTrackingCaptureRequest(using: capture)
+                self.sessionQueue.async {
+                    guard !cancellation.isCancelled else {
+                        self.jobs.removeValue(forKey: capture.uniqueID)
+                        DispatchQueue.main.async { self.readinessCoordinator?.stopTrackingCaptureRequest(using: capture.uniqueID) }
+                        continuation.resume(returning: false); return
+                    }
+                    self.photoOutput.capturePhoto(with: capture, delegate: job)
+                    continuation.resume(returning: true)
+                }
+            }
+        }
         }
     }
     private func finishPhoto(_ result: Result<PhotoJob.Output, Error>, id: Int64) {
         defer {
             sessionQueue.async {
-                self.jobs.removeValue(forKey: id)
-                let count = self.jobs.count
+                self.renderingPhotos -= 1
+                let count = self.jobs.count + self.renderingPhotos
                 DispatchQueue.main.async { self.pendingPhotos = count }
             }
         }
@@ -639,6 +744,18 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     }
     func sessionControlsWillEnterFullscreenAppearance(_ session: AVCaptureSession) {}
     func sessionControlsWillExitFullscreenAppearance(_ session: AVCaptureSession) {}
+    func readinessCoordinator(_ coordinator: AVCapturePhotoOutputReadinessCoordinator,
+                              captureReadinessDidChange captureReadiness: AVCapturePhotoOutput.CaptureReadiness) {
+        captureReady = captureReadiness == .ready
+    }
+    private var lastBurstExposureTime: Double?
+}
+
+private final class CaptureCancellation {
+    private let lock = NSLock()
+    private var cancelled = false
+    var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
+    func cancel() { lock.lock(); cancelled = true; lock.unlock() }
 }
 
 private final class PhotoJob: NSObject, AVCapturePhotoCaptureDelegate {

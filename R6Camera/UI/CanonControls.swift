@@ -9,7 +9,8 @@ enum CameraControl: String, CaseIterable, Identifiable {
     case area = "自動對焦區域", meter = "測光模式"
     var id: String { rawValue }
     var isAF: Bool { [.area, .autofocus, .subject, .eye, .manualFocus, .stickiness, .sensitivity].contains(self) }
-    func value(_ s: CameraSettings) -> String {
+    func value(_ requested: CameraSettings) -> String {
+        let s = requested.effective
         switch self {
         case .mode: return s.program.rawValue
         case .shutter: return s.controlsShutter ? s.shutterLabel : "AUTO"
@@ -18,7 +19,7 @@ enum CameraControl: String, CaseIterable, Identifiable {
         case .autofocus: return s.autofocus.rawValue
         case .subject: return s.subjects.rawValue
         case .eye: return s.eyes.rawValue
-        case .drive: return s.drive.rawValue
+        case .drive: return s.drive.label
         case .whiteBalance: return s.whiteBalance.rawValue
         case .style: return s.style.rawValue
         case .format: return s.format.rawValue

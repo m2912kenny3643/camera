@@ -83,9 +83,6 @@ struct CameraView: View {
                     Rectangle().strokeBorder(.white, lineWidth: 2).opacity(feedback.opacity(at: context.date.timeIntervalSinceReferenceDate))
                 }
                     .allowsHitTesting(false).accessibilityHidden(true)
-                if camera.isUIFixture && ProcessInfo.processInfo.environment["R6_UI_FEEDBACK_TEST"] == "1" {
-                    Button("模擬拍攝 \(camera.captureFeedback)") { camera.simulateCaptureFeedback() }.accessibilityIdentifier("fixture.capture")
-                }
                 if camera.countdown > 0 { Text("\(camera.countdown)").font(.system(size: 64, weight: .bold)).shadow(radius: 5) }
                 if !camera.isRunning && !camera.isUIFixture { Text(camera.status).font(.caption).padding(12).background(.black.opacity(0.8)) }
             }.clipped().accessibilityElement(children: .contain).accessibilityIdentifier("camera.viewfinder")
@@ -117,7 +114,12 @@ struct CameraView: View {
                         CameraMarkButton(title: "驅動模式", action: { open(.drive) }) { CanonGlyph(kind: .drive, label: camera.settings.drive.rawValue) }
                         Text(camera.settings.drive.delay > 0 ? "\(camera.settings.drive.delay)s" : "").font(.caption2)
                         Spacer(minLength: 0)
-                        Button("INFO") { info.toggle() }.font(.system(size: 10)).frame(minHeight: 30)
+                        Button("INFO") {
+                            if feedbackFixture { camera.simulateCaptureFeedback() }
+                            else { info.toggle() }
+                        }.font(.system(size: 10)).frame(minHeight: 30)
+                            .accessibilityIdentifier(feedbackFixture ? "fixture.capture" : "camera.info")
+                            .accessibilityValue(feedbackFixture ? String(camera.captureFeedback) : "")
                     }
                 }.frame(width: 63 * unit, alignment: .leading)
                 Spacer()
@@ -132,7 +134,7 @@ struct CameraView: View {
                     if camera.tracking.locked || camera.tracking.touchPoint != nil {
                         Button { camera.unlockTracking() } label: { Image(systemName: "xmark").frame(width: 38, height: 30).background(.black.opacity(0.5)) }.accessibilityLabel("解除觸控對焦").accessibilityIdentifier("focus.unlock")
                     }
-                    if camera.settings.autofocus == .manual { Button { magnification.toggle() } label: { Image(systemName: "plus.magnifyingglass").frame(width: 38, height: 30) } }
+                    if camera.settings.effective.autofocus == .manual { Button { magnification.toggle() } label: { Image(systemName: "plus.magnifyingglass").frame(width: 38, height: 30) } }
                     if !zoomOpen {
                         Button { quick = nil; zoomOpen = true } label: {
                             Text(String(format: "%g×", Double((camera.zoom * 10).rounded() / 10))).font(.system(size: 14, weight: .medium)).frame(width: 40, height: 40).background(Circle().fill(.black.opacity(0.25))).overlay(Circle().stroke(.white, lineWidth: 1))
@@ -144,6 +146,9 @@ struct CameraView: View {
             else if let notice { Text(notice).font(.caption2).padding(3).background(.black.opacity(0.65)) }
             if !info { Button("INFO") { info.toggle() }.font(.caption2) }
         }.padding(.horizontal, 12).padding(.vertical, 7).buttonStyle(.plain).shadow(color: .black, radius: 1, x: 0, y: 1)
+    }
+    private var feedbackFixture: Bool {
+        camera.isUIFixture && ProcessInfo.processInfo.environment["R6_UI_FEEDBACK_TEST"] == "1"
     }
     private var exposureBar: some View {
         GeometryReader { g in

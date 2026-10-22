@@ -15,15 +15,18 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     var onFrame: ((TrackingResult, CGFloat, [Float], CGImage?) -> Void)?
     var onPreview: ((CGImage) -> Void)?
     var onModelError: ((String) -> Void)?
+    var onBirdStatus: ((String) -> Void)?
     private var settings = CameraSettings()
     private var tracker = SubjectTracker()
     private var model: VNCoreMLModel?
+    private var birdModel: BirdPoseModel?
     private var lastFrame: Double = 0
     private var lastAspect: CGFloat = 0
     private let context = CIContext(options: [.cacheIntermediates: false])
     private let renderContext = CIContext(options: [.cacheIntermediates: false])
 
-    func configure(_ settings: CameraSettings) {
+    func configure(_ requested: CameraSettings) {
+        let settings = requested.effective
         snapshotLock.lock()
         previewSettings = settings
         snapshotLock.unlock()
@@ -41,7 +44,7 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     func select(_ point: CGPoint) {
         queue.async {
             guard self.settings.autofocus != .manual else { return }
-            self.tracker.select(at: point, eyes: self.settings.eyes)
+            self.tracker.select(at: point, eyes: self.settings.eyes, mode: self.settings.autofocus)
             self.publish(self.tracker.result, aspect: max(self.lastAspect, 1), histogram: [])
         }
     }
@@ -54,6 +57,13 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     func reset() { queue.async { self.tracker.reset(); self.lastAspect = 0 } }
     func loadModel() {
         queue.async {
+            do {
+                self.birdModel = try BirdPoseModel()
+                self.onBirdStatus?("鳥眼模型已載入；真機準確度與效能待驗收")
+            } catch {
+                self.birdModel = nil
+                self.onBirdStatus?(error.localizedDescription)
+            }
             do {
                 guard let url = Bundle.main.url(forResource: "YOLOv3TinyInt8LUT", withExtension: "mlmodelc") else {
                     throw NSError(domain: "Model", code: 1, userInfo: [NSLocalizedDescriptionKey: "缺少主體模型；請使用含模型的完整建置。"])
@@ -107,6 +117,20 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 }
                 if settings.eyes != .off && (settings.subjects == .automatic || settings.subjects == .animals) {
                     try addAnimalEyes(handler, to: &detections)
+                }
+                if settings.subjects == .automatic || settings.subjects == .animals, let birdModel {
+                    do {
+                        let poses = try birdModel.observations(buffer, at: now)
+                        let birds = poses.map(\.detection)
+                        // Replace duplicate body detections; identity remains tied to observed body geometry.
+                        detections.removeAll { old in old.kind == .bird && birds.contains {
+                            SubjectTracker.intersectionOverUnion(old.bounds, $0.bounds) > 0.2
+                        } }
+                        detections.append(contentsOf: birds)
+                    } catch {
+                        self.birdModel = nil
+                        onBirdStatus?("鳥眼推論失敗，已回到身體辨識：\(error.localizedDescription)")
+                    }
                 }
             } catch {
                 // Empty detections pass through the normal grace/lost state. Do not preserve fake live boxes.

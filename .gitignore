@@ -8,5 +8,9 @@ build/
 *.xcarchive/
 *.xcresult/
 R6Camera/Resources/*.mlmodel
+R6Camera/Resources/*.mlpackage/
+R6Camera/Resources/*.mlmodelc/
+R6Camera/Resources/APP-LICENSE.txt
+R6Camera/Resources/SOURCE-COMMIT.txt
 .DS_Store
 __pycache__/

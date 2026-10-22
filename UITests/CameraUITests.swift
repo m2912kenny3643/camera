@@ -1,11 +1,12 @@
 import XCTest
 
 final class CameraUITests: XCTestCase {
-    func testLandscapeCameraZoomAndSecondaryMenus() {
+    func testLandscapeZoomMenusAndCaptureFeedback() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchEnvironment["R6_UI_TESTING"] = "1"
         app.launchEnvironment["R6_UI_HOLD_ZOOM"] = "1"
+        app.launchEnvironment["R6_UI_FEEDBACK_TEST"] = "1"
         XCUIDevice.shared.orientation = .portrait
         app.launch()
         let quick = app.buttons["quick.open"]
@@ -61,20 +62,15 @@ final class CameraUITests: XCTestCase {
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.72, dy: 0.6)).tap()
         XCTAssertTrue(app.buttons["focus.unlock"].waitForExistence(timeout: 5))
         capture("08-Touch-point-single")
+        verifyCaptureFeedbackLeavesLiveViewUncovered(app)
     }
-    func testCaptureFeedbackLeavesLiveViewUncovered() {
-        continueAfterFailure = false
-        let app = XCUIApplication()
-        app.launchEnvironment["R6_UI_TESTING"] = "1"
-        app.launchEnvironment["R6_UI_FEEDBACK_TEST"] = "1"
-        XCUIDevice.shared.orientation = .portrait
-        app.launch()
+    private func verifyCaptureFeedbackLeavesLiveViewUncovered(_ app: XCUIApplication) {
         let trigger = app.buttons["fixture.capture"]
         XCTAssertTrue(trigger.waitForExistence(timeout: 10))
         let viewfinder = app.descendants(matching: .any)["camera.viewfinder"]
         for count in 1...3 {
             trigger.tap()
-            XCTAssertEqual(trigger.label, "模擬拍攝 \(count)")
+            XCTAssertEqual(trigger.value as? String, String(count))
         }
         let returned = NSPredicate(format: "value == %@", "即時取景")
         expectation(for: returned, evaluatedWith: viewfinder)
@@ -84,14 +80,21 @@ final class CameraUITests: XCTestCase {
         app.buttons["menu.tab.2"].tap()
         XCTAssertFalse(app.buttons["menu.拍後檢視"].exists)
         app.buttons["menu.close"].tap()
-        XCTAssertEqual(trigger.label, "模擬拍攝 3")
+        XCTAssertEqual(trigger.value as? String, "3")
         XCTAssertEqual(viewfinder.value as? String, "即時取景")
         capture("09-Live-view-after-capture-feedback")
     }
     private func capture(_ name: String) {
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        let screenshot = XCUIScreen.main.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+        // Also preserve PNGs outside xcresult: a crashed test runner may never finalize its result bundle.
+        do {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("R6CameraScreenshots")
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try screenshot.pngRepresentation.write(to: directory.appendingPathComponent(name).appendingPathExtension("png"), options: .atomic)
+        } catch { XCTFail("Could not preserve screenshot: \(error)") }
     }
 }

@@ -3,7 +3,8 @@ import SwiftUI
 struct ZoomWheel: View {
     @ObservedObject var camera: CameraController
     let close: () -> Void
-    @State private var startZoom: CGFloat?
+    @State private var previousTouch: CGPoint?
+    @State private var gestureZoom: CGFloat?
     @State private var snap: CGFloat?
     @State private var dismissTask: Task<Void, Never>?
     var body: some View {
@@ -44,20 +45,23 @@ struct ZoomWheel: View {
                     }
                 }.allowsHitTesting(false)
                 Rectangle().fill(.clear).contentShape(Rectangle()).frame(width: proxy.size.width * 0.19)
-                    .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
+                    .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("zoom.dial")).onChanged { drag in
                         dismissTask?.cancel()
-                        if startZoom == nil { startZoom = camera.zoom }
-                        let value = dial.zoom(start: startZoom ?? camera.zoom, verticalTranslation: drag.translation.height, range: camera.zoomRange)
+                        let previous = previousTouch ?? drag.startLocation
+                        let value = dial.zoom(start: gestureZoom ?? camera.zoom,
+                                              rotation: dial.rotation(from: previous, to: drag.location), range: camera.zoomRange)
+                        previousTouch = drag.location
+                        gestureZoom = value
                         let stop = [CGFloat(0.5), 1, 2].first { camera.zoomRange.contains($0) && abs(log2(value / $0)) < 0.035 }
                         if stop != snap, stop != nil { UISelectionFeedbackGenerator().selectionChanged() }
                         snap = stop; camera.setZoom(stop ?? value)
-                    }.onEnded { _ in startZoom = nil; scheduleDismiss() })
+                    }.onEnded { _ in previousTouch = nil; gestureZoom = nil; scheduleDismiss() })
                     .accessibilityLabel("縮放轉盤").accessibilityIdentifier("zoom.wheel")
                     .accessibilityValue(String(format: "%.2f", Double(camera.zoom)))
                     .accessibilityAdjustableAction { direction in
                         camera.setZoom(camera.zoom * (direction == .increment ? 1.1 : 1 / 1.1)); scheduleDismiss()
                     }
-            }.clipped().onAppear { scheduleDismiss() }.onDisappear { dismissTask?.cancel() }
+            }.coordinateSpace(name: "zoom.dial").clipped().onAppear { scheduleDismiss() }.onDisappear { dismissTask?.cancel() }
         }
     }
     private func scheduleDismiss() {

@@ -17,7 +17,7 @@ struct CameraPreview: UIViewRepresentable {
             DispatchQueue.main.async {
                 switch event.phase {
                 case .began:
-                    view.hardwareBurst = camera.settings.drive == .burst
+                    view.hardwareBurst = camera.settings.drive.isBurst
                     if view.hardwareBurst { camera.beginBurst() }
                     else { camera.shutter() }
                 case .ended:

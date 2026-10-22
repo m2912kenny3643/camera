@@ -3,6 +3,15 @@
 原生 Swift iPhone 相機，參考 EOS R6 Mark III 的拍攝資訊與 Q／MENU 操作。
 目標裝置：iPhone 17 標準版、iOS 27。這是獨立專案，並非 Canon 官方 App。
 
+## 0.4 開發中
+
+最新實作與未完成項目以 [0.4 檢查點](docs/IMPLEMENTATION-0.4.md) 為準。
+六畫面設計提案尚待確認；核心修正進行原生編譯驗證。
+使用者已改為要求鳥眼模型直接隨 IPA 交付，並接受原創 App 程式依 AGPL-3.0 開源。
+候選權重的再散布條件及 100 張獨立圖片／真機評估仍未完成；模型尚未封裝。
+CI 的 `R6Camera-0.4-validation-IPA-no-bird` 僅是通過測試後的驗證版，不代表完整交付。
+下方 0.3 操作與限制是上一版記錄，不取代此檢查點。
+
 ## GitHub 編成 IPA
 
 1. Push 到 `main`，或在 Actions → **Build iPhone IPA** → **Run workflow**。

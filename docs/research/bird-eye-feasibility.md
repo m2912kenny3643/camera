@@ -1,5 +1,16 @@
 # Bird eye and head localization feasibility
 
+## 0.4 request supersedes earlier delivery decision
+
+The user now requires an IPA with the bird-eye model bundled and accepts
+AGPL-3.0 licensing for original app source. The previous model-free delivery
+decision below describes 0.3 only. A Core ML adapter/decoder is implemented for
+native validation, but no weights are bundled and no real-image/device accuracy
+claim is made. Public model release remains gated by `docs/bird-release.json`;
+the card/checkpoint licence discrepancy and training-source provenance remain
+unresolved. Synthetic FLOAT32 parity passed in run 39704478800; that remains
+conversion evidence only.
+
 ## Actual macOS experiments
 
 [Research run 39702376853](https://github.com/m2912kenny3643/camera/actions/runs/39702376853) successfully loaded the hash-pinned checkpoint through the restricted weights-only loader and exported Core ML. Measured input is RGB image `image`, 640×640; measured output is float32 `var_1345`, shape `[1,23,8400]`. The checkpoint has 2,672,601 parameters. No model was published or added to the app.

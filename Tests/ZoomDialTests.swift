@@ -17,15 +17,26 @@ final class ZoomDialTests: XCTestCase {
     }
     func testLogarithmicDragAndLimits() {
         let dial = ZoomDialGeometry(size: CGSize(width: 852, height: 360))
-        // Screen coordinates increase downward: dragging down must zoom in.
-        XCTAssertEqual(dial.zoom(start: 1, verticalTranslation: 100, range: 0.5...10), 2, accuracy: 0.001)
-        XCTAssertEqual(dial.zoom(start: 1, verticalTranslation: -100, range: 0.5...10), 0.5, accuracy: 0.001)
-        XCTAssertEqual(dial.zoom(start: 1, verticalTranslation: -1000, range: 0.5...10), 0.5)
-        XCTAssertEqual(dial.zoom(start: 1, verticalTranslation: 1000, range: 0.5...10), 10)
+        XCTAssertEqual(dial.zoom(start: 1, rotation: -0.46, range: 0.5...10), 2, accuracy: 0.001)
+        XCTAssertEqual(dial.zoom(start: 1, rotation: 0.46, range: 0.5...10), 0.5, accuracy: 0.001)
+        XCTAssertEqual(dial.zoom(start: 1, rotation: 100, range: 0.5...10), 0.5)
+        XCTAssertEqual(dial.zoom(start: 1, rotation: -100, range: 0.5...10), 10)
     }
-    func testLowerZoomIsAbovePointerAndHigherZoomBelow() {
+    func testHigherZoomIsAbovePointerAndLowerZoomBelow() {
         let dial = ZoomDialGeometry(size: CGSize(width: 852, height: 360))
-        XCTAssertLessThan(dial.point(angle: dial.angle(for: 0.5, selected: 1)).y, dial.center.y)
-        XCTAssertGreaterThan(dial.point(angle: dial.angle(for: 2, selected: 1)).y, dial.center.y)
+        XCTAssertGreaterThan(dial.point(angle: dial.angle(for: 0.5, selected: 1)).y, dial.center.y)
+        XCTAssertLessThan(dial.point(angle: dial.angle(for: 2, selected: 1)).y, dial.center.y)
+    }
+    func testDialFollowsFingerAcrossPiBoundary() {
+        let dial = ZoomDialGeometry(size: CGSize(width: 852, height: 360))
+        let before = dial.point(angle: .pi - 0.05)
+        let after = dial.point(angle: .pi + 0.05)
+        XCTAssertEqual(dial.rotation(from: before, to: after), 0.1, accuracy: 0.00001)
+        let start = dial.point(angle: .pi)
+        let finger = dial.point(angle: .pi - 0.2)
+        let zoom = dial.zoom(start: 1, rotation: dial.rotation(from: start, to: finger), range: 0.5...10)
+        XCTAssertGreaterThan(zoom, 1)
+        // The 1x tick rotates to exactly the same angle as the finger.
+        XCTAssertEqual(dial.angle(for: 1, selected: zoom), .pi - 0.2, accuracy: 0.00001)
     }
 }

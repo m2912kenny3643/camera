@@ -98,7 +98,7 @@ struct CameraControlEditor: View {
         case .autofocus: return values([AutofocusMode.servo, .manual], selected: s.autofocus, title: { $0.rawValue }) { v in camera.update { $0.autofocus = v } }
         case .subject: return values(SubjectMode.allCases, selected: s.subjects, title: { $0.rawValue }) { v in camera.update { $0.subjects = v } }
         case .eye: return values([EyePriority.off, .automatic, .right, .left], selected: s.eyes, title: { $0.rawValue }) { v in camera.update { $0.eyes = v } }
-        case .drive: return values(DriveMode.allCases, selected: s.drive, title: { $0.rawValue }) { v in camera.update { $0.drive = v } }
+        case .drive: return values(DriveMode.allCases, selected: s.drive, title: { $0.label }) { v in camera.update { $0.drive = v } }
         case .whiteBalance: return values(WhiteBalance.allCases, selected: s.whiteBalance, title: { $0.rawValue }) { v in camera.update { $0.whiteBalance = v } }
         case .style: return values(PictureStyle.allCases, selected: s.style, title: { $0.rawValue }) { v in camera.update { $0.style = v } }
         case .format: return values(PhotoFormat.allCases.filter { camera.supportsRAW || $0 != .raw }, selected: s.format, title: { $0.rawValue }) { v in camera.update { $0.format = v } }
@@ -112,7 +112,7 @@ struct CameraControlEditor: View {
             return result
         case .iso:
             var result = values(CameraSettings.isoValues, selected: s.iso, title: { "\(Int($0))" }) { v in
-                camera.update { $0.iso = v; if $0.program == .flexible { $0.autoISO = false } else { $0.program = .manual } }
+                camera.update { $0.selectISO(v) }
             }
             result.insert(CameraChoice(title: "AUTO", selected: !s.controlsISO) { camera.update { $0.useAutomaticISO() } }, at: 0)
             return result
