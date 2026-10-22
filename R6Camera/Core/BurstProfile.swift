@@ -25,7 +25,11 @@ struct BurstProfile {
     let reason: String?
 
     init(settings: CameraSettings, responsive: Bool, photoPixels: Int64, exposure: Double) {
-        let canOverlapFaster = responsive && photoPixels > 0 && photoPixels <= 24_000_000
+        // 24MP formats may contain slightly more than 24 million pixels. Higher
+        // resolutions can be explicitly tried without silently reducing dimensions.
+        let highResolution = photoPixels > 25_000_000
+        let explicitTrial = settings.burstRateTrial != .standard
+        let canOverlapFaster = responsive && photoPixels > 0 && (!highResolution || explicitTrial)
             && settings.format != .raw && !settings.requiresExactExposure
         let ceiling = canOverlapFaster
             ? (settings.drive == .burstHighPlus ? Double(settings.burstRateTrial.rawValue) : settings.drive == .burst ? settings.burstRateTrial.highFPS : 1.0)
@@ -33,9 +37,10 @@ struct BurstProfile {
         requestFPS = min(ceiling, 1 / max(0.001, exposure + 0.03))
         if requestFPS < ceiling { reason = "曝光時間限制" }
         else if settings.format == .raw { reason = "RAW 保留畫質" }
-        else if photoPixels > 24_000_000 { reason = "高解析度保留畫質" }
         else if settings.requiresExactExposure { reason = "精確手動曝光" }
         else if !responsive { reason = "裝置拍攝能力限制" }
+        else if photoPixels <= 0 { reason = "等待拍攝解析度" }
+        else if highResolution { reason = explicitTrial ? "高解析度試速；待真機驗證" : "高解析度保留畫質" }
         else if settings.burstRateTrial != .standard && settings.drive != .burstLow { reason = "測試請求上限；待真機驗證" }
         else { reason = nil }
     }
