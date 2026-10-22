@@ -172,7 +172,32 @@ def convert_and_compare(path: Path):
     exported = Path(exporter(model=model)).resolve()
     if WORK.resolve() not in exported.parents:
         raise RuntimeError("Exporter wrote outside ignored research directory")
-    converted = ct.models.MLModel(str(exported), compute_units=ct.ComputeUnit.CPU_ONLY)
+    # Ultralytics' half=False does NOT select FLOAT32 ML Program compute. Its
+    # torch2coreml helper leaves compute_precision unset, which defaults to FP16.
+    # Reuse only its trusted, fused/export-prepared PyTorch model, then explicitly
+    # convert every eligible operation in FLOAT32. Compare both prepared and
+    # original PyTorch below so fusion/export drift cannot be hidden by reference choice.
+    prepared_model = exporter.model.cpu().float().eval()
+    with torch.no_grad():
+        traced = torch.jit.trace(prepared_model, exporter.im.cpu().float(), strict=False)
+    float32_model = ct.convert(
+        traced,
+        inputs=[ct.ImageType(name="image", shape=(1, 3, 640, 640),
+                             color_layout=ct.colorlayout.RGB, scale=1 / 255,
+                             bias=[0.0, 0.0, 0.0])],
+        outputs=[ct.TensorType(name="pose_output", dtype=np.float32)],
+        convert_to="mlprogram",
+        compute_precision=ct.precision.FLOAT32,
+        minimum_deployment_target=ct.target.iOS18,
+        skip_model_load=True,
+    )
+    float32_path = WORK / "eye_pose_v0_float32.mlpackage"
+    float32_model.author = "synthet / Ultralytics; personal research conversion"
+    float32_model.license = str(checkpoint.get("license", "AGPL-3.0"))
+    float32_model.save(str(float32_path))
+    report("explicit_float32_conversion", compute_precision="FLOAT32", output_dtype="float32",
+           reference="original_and_fused_export_prepared_pytorch", model_artifact_uploaded=False)
+    converted = ct.models.MLModel(str(float32_path), compute_units=ct.ComputeUnit.CPU_ONLY)
     spec = converted.get_spec()
     def describe(feature):
         kind = feature.type.WhichOneof("Type")
@@ -204,14 +229,28 @@ def convert_and_compare(path: Path):
         with torch.inference_mode():
             original = model(tensor)
             reference = (original[0] if isinstance(original, tuple) else original).detach().cpu().numpy()
+            prepared = prepared_model(tensor)
+            prepared_reference = (prepared[0] if isinstance(prepared, tuple) else prepared).detach().cpu().numpy()
         prediction = np.asarray(converted.predict({input_name: Image.fromarray(image)})[output_name])
-        if reference.shape != prediction.shape or not np.isfinite(prediction).all():
+        if reference.shape != prediction.shape or prepared_reference.shape != reference.shape or not np.isfinite(prediction).all():
             raise RuntimeError(f"Invalid parity result for {name}")
+        preparation_difference = np.abs(reference.astype(np.float32) - prepared_reference.astype(np.float32))
+        prepared_difference = np.abs(prepared_reference.astype(np.float32) - prediction.astype(np.float32))
+        preparation_pixel = float(preparation_difference[:, coordinate_channels, :].max())
+        preparation_probability = float(preparation_difference[:, probability_channels, :].max())
+        prepared_pixel = float(prepared_difference[:, coordinate_channels, :].max())
+        prepared_probability = float(prepared_difference[:, probability_channels, :].max())
+        preparation_passed = preparation_pixel <= 5 and preparation_probability <= 0.03
+        prepared_passed = prepared_pixel <= 5 and prepared_probability <= 0.03
+        report("pytorch_preparation_parity", fixture=name, max_pixel_abs=preparation_pixel,
+               max_probability_abs=preparation_probability, within_research_tolerance=preparation_passed)
+        report("prepared_to_coreml_parity", fixture=name, max_pixel_abs=prepared_pixel,
+               max_probability_abs=prepared_probability, within_research_tolerance=prepared_passed)
         difference = np.abs(reference.astype(np.float32) - prediction.astype(np.float32))
         pixel_max = float(difference[:, coordinate_channels, :].max())
         probability_max = float(difference[:, probability_channels, :].max())
         within_tolerance = pixel_max <= 5 and probability_max <= 0.03
-        passed &= within_tolerance
+        passed &= within_tolerance and preparation_passed and prepared_passed
         report("synthetic_parity", fixture=name, shape=list(prediction.shape),
                mean_abs=float(difference.mean()), max_pixel_abs=pixel_max,
                max_probability_abs=probability_max, within_research_tolerance=within_tolerance)

@@ -43,3 +43,7 @@ Do not infer button identity from audio-volume changes, timing, the zoom overlay
 At the next macOS build, inspect the installed Xcode 27 SDK's public `AVKit.framework/Headers` for `AVCaptureEvent` and `AVCaptureEventInteraction`. Record the selected SDK version and any newly discovered declaration. If no public source/filter exists there, the limitation is confirmed against the actual compile SDK, not just documentation.
 
 Physical acceptance must separately exercise: volume-up short/long press, volume-down short/long press, Camera Control short/held press in single/burst modes, app launch versus foreground capture, overlays open/closed, and interruption/cancellation. Acceptance requires **zero** photo/burst requests from either volume key while retaining the approved Camera Control behavior. Simulator tests or a successful build cannot establish hardware source separation.
+# iOS 27 SDK verification
+
+The actual Xcode 27 iPhoneOS public AVKit headers were printed in [build 39702346520](https://github.com/m2912kenny3643/camera/actions/runs/39702346520). `AVCaptureEvent` exposes phase and sound handling; `AVCaptureEventInteraction` exposes shared or primary/secondary handlers. No source-button identifier/filter was found. The user explicitly chose to retain the common hardware handler temporarily, accepting volume-button capture. This requirement remains unresolved, rather than being described as fixed.
+

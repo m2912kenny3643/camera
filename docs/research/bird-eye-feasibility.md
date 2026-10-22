@@ -1,5 +1,11 @@
 # Bird eye and head localization feasibility
 
+## Actual macOS experiment — initial result
+
+[Research run 39702376853](https://github.com/m2912kenny3643/camera/actions/runs/39702376853) successfully loaded the hash-pinned checkpoint through the restricted weights-only loader and exported Core ML. Measured input is RGB image `image`, 640×640; measured output is float32 `var_1345`, shape `[1,23,8400]`. The checkpoint has 2,672,601 parameters. No model was published or added to the app.
+
+Initial synthetic parity failed the unchanged 5-pixel / 0.03 probability gates: gray 36.5184 / 0.16813; gradient 9.24063 / 0.04521; noise 7.94821 / 0.05574. Ultralytics' Core ML helper omits compute_precision, so ML Program defaults to FP16 even when half=False. The next experiment explicitly requests FLOAT32 compute and compares original PyTorch, export-prepared PyTorch, and Core ML independently. A successful export is not sufficient to enable bird-eye AF; real image accuracy and iPhone performance remain untested.
+
 Checked: 2026-10-22 (Asia/Taipei). Model-source research; no app code or datasets changed. The checkpoint was downloaded into ignored `build/research/bird-eye/` for static inspection only. It was **not loaded, unpickled, executed, or exported**.
 
 ## Decision
