@@ -9,6 +9,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     let vision = SubjectVision()
     let sessionQueue = DispatchQueue(label: "camera.session", qos: .userInitiated)
     private let renderQueue = DispatchQueue(label: "camera.photo", qos: .userInitiated)
+    private let photoContext = CIContext() // Reuse GPU resources across the serial photo pipeline.
     private let photoOutput = AVCapturePhotoOutput()
     private let videoOutput = AVCaptureVideoDataOutput()
     private let store = SettingsStore()
@@ -17,6 +18,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     private var observations: [NSKeyValueObservation] = []
     private var jobs: [Int64: PhotoJob] = [:]
     private var renderingPhotos = 0 // sessionQueue owns both stages and total capacity.
+    private var preparedPhotoKey: String?
     private var readinessCoordinator: AVCapturePhotoOutputReadinessCoordinator?
     private var captureCancellation: CaptureCancellation?
     private var burstMeasurement: CaptureCancellation?
@@ -81,6 +83,11 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     @Published private(set) var captureReady = false
     @Published private(set) var burstFPS: Double?
     @Published private(set) var burstIntervals: [Double] = []
+    @Published private(set) var burstRequestFPS: Double?
+    @Published private(set) var burstLimitReason: String?
+    @Published private(set) var lastPhotoDimensions: String?
+    private var requestedPhotoPixels: Int64 = 0 // main queue snapshot of output configuration.
+    private var responsiveCapture = false
     @Published var lastPhotoURL: URL?
     @Published private(set) var captureFeedback = 0
     @Published var battery: Float = -1
@@ -198,6 +205,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                         self.lensStrategy = .scene
                         self.lastFocusPoint = CGPoint(x: -1, y: -1)
                         try self.applyToDevice(startupSettings)
+                        self.preparePhotoResources(startupSettings)
                         self.session.startRunning()
                     }
                     DispatchQueue.main.async {
@@ -291,10 +299,13 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         let maximum = min(device.maxAvailableVideoZoomFactor / referenceZoom, 10)
         let raw = !photoOutput.availableRawPhotoPixelFormatTypes.isEmpty
         let dimensions = photoOutput.maxPhotoDimensions
+        let responsive = photoOutput.isResponsiveCaptureEnabled
         DispatchQueue.main.async {
             self.zoomRange = minimum...max(minimum, maximum)
             self.supportsRAW = raw
             self.photoResolution = "\(dimensions.width) × \(dimensions.height)"
+            self.requestedPhotoPixels = Int64(dimensions.width) * Int64(dimensions.height)
+            self.responsiveCapture = responsive
             self.supportsNativeZoom = nativeZoom
         }
         configured = true
@@ -324,7 +335,10 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         vision.configure(snapshot)
         if snapshot.autofocus != .single { singleFocused = false }
         sessionQueue.async {
-            do { try self.applyToDevice(snapshot) } catch { self.report(error) }
+            do {
+                try self.applyToDevice(snapshot)
+                self.preparePhotoResources(snapshot)
+            } catch { self.report(error) }
         }
     }
     private func applyToDevice(_ requested: CameraSettings) throws {
@@ -572,7 +586,8 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             while completed < count && !Task.isCancelled && !cancellation.isCancelled && self.isRunning && self.captureEnabled {
                 let now = ProcessInfo.processInfo.systemUptime
                 if now >= cadence.nextDeadline {
-                    let accepted = await self.capture(snapshot, cancellation: cancellation)
+                    let attempt = await self.capture(snapshot, cancellation: cancellation)
+                    let accepted = attempt.accepted
                     _ = cadence.admit(at: ProcessInfo.processInfo.systemUptime, ready: accepted)
                     self.captureBusy = !accepted
                     if accepted { completed += 1 }
@@ -590,47 +605,76 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         captureCancellation = cancellation
         burstFPS = nil; burstIntervals = []; lastBurstExposureTime = nil
         burstMeasurement = cancellation
+        let exposure = snapshot.controlsShutter ? snapshot.shutterSeconds : actualShutter
+        let profile = BurstProfile(settings: snapshot, responsive: responsiveCapture,
+                                   photoPixels: requestedPhotoPixels, exposure: exposure)
+        burstRequestFPS = profile.requestFPS; burstLimitReason = profile.reason
         captureTask = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.captureTask = nil; self.captureCancellation = nil; self.captureBusy = false }
-            var cadence = BurstCadence(fps: snapshot.drive.fps,
-                                       exposure: snapshot.controlsShutter ? snapshot.shutterSeconds : self.actualShutter,
+            var cadence = BurstCadence(fps: profile.requestFPS,
+                                       exposure: exposure,
                                        now: ProcessInfo.processInfo.systemUptime)
             while !Task.isCancelled && !cancellation.isCancelled && self.isRunning && self.captureEnabled {
                 if ProcessInfo.processInfo.systemUptime >= cadence.nextDeadline {
-                    let accepted = await self.capture(snapshot, cancellation: cancellation)
+                    let attempt = await self.capture(snapshot, cancellation: cancellation)
+                    let accepted = attempt.accepted
                     _ = cadence.admit(at: ProcessInfo.processInfo.systemUptime, ready: accepted)
                     self.captureBusy = !accepted
+                    if !accepted { self.burstLimitReason = attempt.reason }
+                    else if cadence.interval > 1 / profile.requestFPS * 1.2 {
+                        self.burstLimitReason = "拍攝／處理降速"
+                    } else { self.burstLimitReason = profile.reason }
                 }
                 do { try await Task.sleep(nanoseconds: 10_000_000) } catch { break }
             }
         }
     }
     func cancelCapture() { captureCancellation?.cancel(); captureTask?.cancel() }
-    private func capture(_ settings: CameraSettings, cancellation: CaptureCancellation) async -> Bool {
+    private func makePhotoSettings(_ settings: CameraSettings) throws -> (AVCapturePhotoSettings, UTType) {
+        let raw = settings.format == .raw ? photoOutput.availableRawPhotoPixelFormatTypes.first : nil
+        guard settings.format != .raw || raw != nil else {
+            throw cameraError("目前鏡頭不支援 RAW；請重新選擇影像畫質。")
+        }
+        let useHEIF = settings.format == .heif && photoOutput.availablePhotoCodecTypes.contains(.hevc)
+        let codec: AVVideoCodecType = useHEIF ? .hevc : .jpeg
+        let capture: AVCapturePhotoSettings
+        if let raw {
+            capture = AVCapturePhotoSettings(rawPixelFormatType: raw, processedFormat: [AVVideoCodecKey: AVVideoCodecType.jpeg])
+        } else { capture = AVCapturePhotoSettings(format: [AVVideoCodecKey: codec]) }
+        capture.maxPhotoDimensions = photoOutput.maxPhotoDimensions
+        // Exact exposure requires speed prioritization; don't alter shutter/ISO to meet cadence.
+        capture.photoQualityPrioritization = settings.requiresExactExposure ? .speed : .balanced
+        return (capture, useHEIF ? .heic : .jpeg)
+    }
+    private func preparePhotoResources(_ settings: CameraSettings) {
+        let dimensions = photoOutput.maxPhotoDimensions
+        let key = "\(settings.format.rawValue):\(settings.requiresExactExposure):\(dimensions.width)x\(dimensions.height)"
+        guard preparedPhotoKey != key, let (capture, _) = try? makePhotoSettings(settings) else { return }
+        preparedPhotoKey = key
+        // Preparation is asynchronous; never wait for completion on the session owner.
+        photoOutput.setPreparedPhotoSettingsArray([capture], completionHandler: nil)
+    }
+    private func capture(_ settings: CameraSettings, cancellation: CaptureCancellation) async -> CaptureAdmission {
         await withCheckedContinuation { continuation in
         sessionQueue.async { [self] in
-            guard self.session.isRunning, !cancellation.isCancelled,
-                  self.photoOutput.captureReadiness == .ready,
-                  self.jobs.count < 2, self.jobs.count + self.renderingPhotos < 3 else {
-                continuation.resume(returning: false); return
+            guard self.session.isRunning, !cancellation.isCancelled else {
+                continuation.resume(returning: .cancelled); return
             }
-            let raw = settings.format == .raw ? self.photoOutput.availableRawPhotoPixelFormatTypes.first : nil
-            guard settings.format != .raw || raw != nil else {
-                self.report(self.cameraError("目前鏡頭不支援 RAW；請重新選擇影像畫質。"))
-                cancellation.cancel(); continuation.resume(returning: false); return
+            guard self.photoOutput.captureReadiness == .ready else {
+                continuation.resume(returning: .systemNotReady); return
             }
-            let useHEIF = settings.format == .heif && self.photoOutput.availablePhotoCodecTypes.contains(.hevc)
-            let codec: AVVideoCodecType = useHEIF ? .hevc : .jpeg
+            guard self.jobs.count < 2, self.jobs.count + self.renderingPhotos < 3 else {
+                continuation.resume(returning: .bufferFull); return
+            }
             let capture: AVCapturePhotoSettings
-            if let raw {
-                capture = AVCapturePhotoSettings(rawPixelFormatType: raw, processedFormat: [AVVideoCodecKey: AVVideoCodecType.jpeg])
-            } else { capture = AVCapturePhotoSettings(format: [AVVideoCodecKey: codec]) }
-            capture.maxPhotoDimensions = self.photoOutput.maxPhotoDimensions
-            // Exact exposure requires speed prioritization on iOS; do not trade
-            // away the selected shutter/ISO to meet a burst cadence.
-            capture.photoQualityPrioritization = settings.requiresExactExposure ? .speed : .balanced
-            let job = PhotoJob(settings: settings, type: useHEIF ? .heic : .jpeg, onCaptured: { [weak self] in
+            let type: UTType
+            do { (capture, type) = try self.makePhotoSettings(settings) }
+            catch {
+                self.report(error); cancellation.cancel()
+                continuation.resume(returning: .unsupportedFormat); return
+            }
+            let job = PhotoJob(settings: settings, type: type, onCaptured: { [weak self] in
                 let timestamp = ProcessInfo.processInfo.systemUptime
                 DispatchQueue.main.async {
                     guard let self else { return }
@@ -662,10 +706,12 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                     guard !cancellation.isCancelled else {
                         self.jobs.removeValue(forKey: capture.uniqueID)
                         DispatchQueue.main.async { self.readinessCoordinator?.stopTrackingCaptureRequest(using: capture.uniqueID) }
-                        continuation.resume(returning: false); return
+                        let count = self.jobs.count + self.renderingPhotos
+                        DispatchQueue.main.async { self.pendingPhotos = count }
+                        continuation.resume(returning: .cancelled); return
                     }
                     self.photoOutput.capturePhoto(with: capture, delegate: job)
-                    continuation.resume(returning: true)
+                    continuation.resume(returning: .accepted)
                 }
             }
         }
@@ -681,19 +727,27 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         }
         do {
             let output = try result.get()
+            DispatchQueue.main.async { self.lastPhotoDimensions = output.dimensions }
             let directory = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             let stem = "R6_\(Int(Date().timeIntervalSince1970))_\(id)"
-            let url = directory.appendingPathComponent(stem).appendingPathExtension(output.type == .heic ? "heic" : "jpg")
             // Persist original capture first. A failed style render must never discard a photo.
-            try output.processed.write(to: url, options: .atomic)
-            var rawURL: URL?
-            if let raw = output.raw {
-                let target = directory.appendingPathComponent(stem).appendingPathExtension("dng")
-                try raw.write(to: target, options: .atomic)
-                rawURL = target
+            let files = try output.data.persist(in: directory, stem: stem, processedExtension: output.type == .heic ? "heic" : "jpg")
+            let warnings = [output.data.warning, files.warning].compactMap { $0 }
+            if !warnings.isEmpty {
+                self.report(self.cameraError("拍攝不完整，已保留成功原檔：\(warnings.joined(separator: "；"))"))
+            }
+            guard let url = files.processed, let processed = output.data.processed else {
+                if let raw = files.raw {
+                    DispatchQueue.main.async {
+                        self.lastPhotoURL = raw
+                        self.status = "僅 RAW 已保留，請從回放分享原檔"
+                    }
+                    saveToLibrary(raw, rawURL: nil)
+                }
+                return
             }
             do {
-                let rendered = try PhotoRenderer.render(output.processed, settings: output.settings, type: output.type, context: CIContext())
+                let rendered = try PhotoRenderer.render(processed, settings: output.settings, type: output.type, context: photoContext)
                 try rendered.write(to: url, options: .atomic)
             } catch {
                 self.report(self.cameraError("風格處理失敗，已保留原始照片：\(error.localizedDescription)"))
@@ -702,7 +756,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                 self.lastPhotoURL = url
                 self.status = "照片已存於 App"
             }
-            saveToLibrary(url, rawURL: rawURL)
+            saveToLibrary(url, rawURL: files.raw)
         } catch { report(error) }
     }
     private func saveToLibrary(_ url: URL, rawURL: URL?) {
@@ -732,8 +786,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     }
     func galleryURLs() -> [URL] {
         guard let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return [] }
-        return ((try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [])
-            .filter { ["heic", "jpg"].contains($0.pathExtension) }.sorted { $0.lastPathComponent > $1.lastPathComponent }
+        return PhotoCaptureData.galleryItems((try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [])
     }
     private func cameraError(_ message: String) -> NSError {
         NSError(domain: "Camera", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
@@ -763,10 +816,10 @@ private final class CaptureCancellation {
 
 private final class PhotoJob: NSObject, AVCapturePhotoCaptureDelegate {
     struct Output {
-        let processed: Data
-        let raw: Data?
+        let data: PhotoCaptureData
         let settings: CameraSettings
         let type: UTType
+        let dimensions: String?
     }
     let settings: CameraSettings
     let type: UTType
@@ -776,11 +829,16 @@ private final class PhotoJob: NSObject, AVCapturePhotoCaptureDelegate {
     private var raw: Data?
     private var processingError: Error?
     private var captured = false
+    private var dimensions: String?
     init(settings: CameraSettings, type: UTType, onCaptured: @escaping () -> Void, completion: @escaping (Result<Output, Error>) -> Void) {
         self.settings = settings; self.type = type; self.onCaptured = onCaptured; self.completion = completion
     }
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         if let error { processingError = error; return }
+        if !photo.isRawPhoto {
+            let size = photo.resolvedSettings.photoDimensions
+            dimensions = "\(size.width) × \(size.height)"
+        }
         guard let data = photo.fileDataRepresentation() else { return }
         if photo.isRawPhoto { raw = data } else { processed = data }
     }
@@ -790,11 +848,12 @@ private final class PhotoJob: NSObject, AVCapturePhotoCaptureDelegate {
         onCaptured()
     }
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings, error: Error?) {
-        if let error = error ?? processingError { completion(.failure(error)); return }
-        guard let processed else {
-            completion(.failure(NSError(domain: "Photo", code: 1, userInfo: [NSLocalizedDescriptionKey: "相機未傳回照片資料。"])))
+        let data = PhotoCaptureData(processed: processed, raw: raw, requiresRAW: settings.format == .raw,
+                                    error: (error ?? processingError)?.localizedDescription)
+        guard !data.isEmpty else {
+            completion(.failure(NSError(domain: "Photo", code: 1, userInfo: [NSLocalizedDescriptionKey: data.warning ?? "相機未傳回照片資料。"])))
             return
         }
-        completion(.success(Output(processed: processed, raw: raw, settings: settings, type: type)))
+        completion(.success(Output(data: data, settings: settings, type: type, dimensions: dimensions)))
     }
 }

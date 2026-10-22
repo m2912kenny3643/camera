@@ -107,7 +107,7 @@ jobs:
       - name: Upload validation IPA after tests
         uses: actions/upload-artifact@v4
         with:
-          name: R6Camera-0.4-validation-IPA-no-bird
+          name: R6Camera-0.5-core-validation-IPA-no-bird-43-pending
           path: |
             build/R6Camera-unsigned.ipa
             build/model-provenance.json

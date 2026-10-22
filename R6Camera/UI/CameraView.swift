@@ -112,6 +112,9 @@ struct CameraView: View {
                 }
                 if camera.captureBusy || (camera.isRunning && !camera.captureReady) { Text("BUSY").font(.caption2).foregroundStyle(.yellow) }
                 if let fps = camera.burstFPS, camera.settings.drive.isBurst { Text(String(format: "%.1f 張/s", fps)).font(.caption2).monospacedDigit() }
+                if let requested = camera.burstRequestFPS, camera.settings.drive.isBurst {
+                    Text(String(format: "請求 ≤%.1f", requested)).font(.caption2).monospacedDigit()
+                }
                 if camera.pendingPhotos > 0 { Text("寫入 \(camera.pendingPhotos)").font(.caption2) }
                 if camera.battery >= 0 {
                     Image(systemName: camera.battery < 0.2 ? "battery.25percent" : "battery.75percent").foregroundStyle(camera.battery < 0.2 ? .red : .white)
@@ -160,6 +163,9 @@ struct CameraView: View {
             }
             if camera.tracking.lost { Text("目標遺失 · 請重新點選").font(.caption2).padding(3).background(.black.opacity(0.65)) }
             else if let notice { Text(notice).font(.caption2).padding(3).background(.black.opacity(0.65)) }
+            else if camera.settings.drive.isBurst, let reason = camera.burstLimitReason {
+                Text(reason).font(.caption2).padding(3).background(.black.opacity(0.65))
+            }
             if !info {
                 Button("INFO") { cycleInfo() }.font(.caption2)
                     .accessibilityIdentifier(feedbackFixture ? "fixture.capture" : "camera.info")

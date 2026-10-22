@@ -66,7 +66,7 @@ struct CameraControlEditor: View {
         } label: { Text("SET  OK").font(.system(size: 13)).padding(.horizontal, 8).frame(height: 29).overlay(Rectangle().stroke(.white.opacity(0.6))) }.accessibilityIdentifier("editor.confirm")
     }
     private var selectionTitle: String {
-        let value = control == .drive && draft.drive.isBurst ? "\(draft.drive.label)（上限 \(Int(draft.drive.fps)) 張／秒）" : control.value(draft)
+        let value = control == .drive && draft.drive.isBurst ? "\(draft.drive.label)（請求速度依格式與裝置調整）" : control.value(draft)
         return "\(control.rawValue)：\(value)"
     }
     private var qualityOptions: some View {
@@ -82,7 +82,11 @@ struct CameraControlEditor: View {
                 qualityChoice("HEIF", selected: draft.format == .heif) { draft.format = .heif }
                 qualityChoice("JPEG", selected: draft.format != .heif) { if draft.format != .raw { draft.format = .jpeg } }; Spacer()
             }
-            Text(camera.photoResolution.map { "\($0) · 目前鏡頭最大尺寸" } ?? "影像尺寸依目前鏡頭配置").foregroundStyle(.gray).font(.system(size: 12))
+            Text(camera.photoResolution.map { "請求尺寸上限 \($0)" } ?? "影像尺寸依目前鏡頭配置").foregroundStyle(.gray).font(.system(size: 12))
+            if let dimensions = camera.lastPhotoDimensions {
+                Text("上張處理後尺寸 \(dimensions)").foregroundStyle(.gray).font(.system(size: 12))
+            }
+            Text("實際尺寸由系統決定；精確手動曝光不保證最高解析度").foregroundStyle(.gray).font(.system(size: 11))
         }.font(.system(size: 16)).padding(24)
     }
     private func qualityChoice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {

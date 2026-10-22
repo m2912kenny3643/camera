@@ -41,7 +41,7 @@ struct GalleryView: View {
                 if images.indices.contains(selection) {
                     ShareLink(item: images[selection]) { Image(systemName: "square.and.arrow.up") }.accessibilityLabel("分享照片")
                     let raw = images[selection].deletingPathExtension().appendingPathExtension("dng")
-                    if FileManager.default.fileExists(atPath: raw.path) { ShareLink(item: raw) { Text("RAW") } }
+                    if raw != images[selection] && FileManager.default.fileExists(atPath: raw.path) { ShareLink(item: raw) { Text("RAW") } }
                 }
                 Button { dismiss() } label: { Image(systemName: "arrow.uturn.backward") }.accessibilityLabel("返回拍攝").accessibilityIdentifier("gallery.close")
             }.padding(.horizontal, 20).frame(height: 40)
@@ -57,7 +57,7 @@ struct GalleryView: View {
         guard images.indices.contains(selection) else { return }
         let url = images[selection], raw = images[selection].deletingPathExtension().appendingPathExtension("dng")
         do {
-            if FileManager.default.fileExists(atPath: raw.path) { try FileManager.default.removeItem(at: raw) }
+            if raw != url && FileManager.default.fileExists(atPath: raw.path) { try FileManager.default.removeItem(at: raw) }
             try FileManager.default.removeItem(at: url)
             images.remove(at: selection); selection = max(0, min(selection, images.count - 1)); zoom = 1
         } catch { self.error = error.localizedDescription }
