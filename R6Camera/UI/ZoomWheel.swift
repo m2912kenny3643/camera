@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ZoomWheel: View {
     @ObservedObject var camera: CameraController
+    let railWidth: CGFloat
     let close: () -> Void
     @State private var previousTouch: CGPoint?
     @State private var gestureZoom: CGFloat?
@@ -11,7 +12,6 @@ struct ZoomWheel: View {
         GeometryReader { proxy in
             let dial = ZoomDialGeometry(size: proxy.size)
             ZStack(alignment: .trailing) {
-                Color.black.opacity(0.001).onTapGesture { close() }
                 Canvas { context, size in
                     context.fill(Path(ellipseIn: CGRect(x: dial.center.x - dial.radius, y: dial.center.y - dial.radius, width: dial.radius * 2, height: dial.radius * 2)), with: .color(.black.opacity(0.7)))
                     for i in -16...80 {
@@ -43,8 +43,8 @@ struct ZoomWheel: View {
                     if let focal = camera.equivalentFocalLength(at: camera.zoom) {
                         context.draw(Text("≈\(Int(focal.rounded()))MM").font(.system(size: 10)).foregroundColor(.yellow), at: CGPoint(x: label.x, y: label.y + 17))
                     }
-                }.allowsHitTesting(false)
-                Rectangle().fill(.clear).contentShape(Rectangle()).frame(width: proxy.size.width * 0.19)
+                }.mask(alignment: .trailing) { Rectangle().frame(width: railWidth) }.allowsHitTesting(false)
+                Rectangle().fill(.clear).contentShape(Rectangle()).frame(width: min(railWidth, proxy.size.width * 0.19))
                     .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("zoom.dial")).onChanged { drag in
                         dismissTask?.cancel()
                         let previous = previousTouch ?? drag.startLocation

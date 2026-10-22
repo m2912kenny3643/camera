@@ -62,7 +62,11 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     @Published var status = "正在啟動相機"
     @Published private(set) var birdStatus = "鳥眼模型尚未載入"
     @Published var tracking = TrackingResult()
-    @Published var frameAspect: CGFloat = 0.75
+    @Published private(set) var frameSize = CGSize(width: 4, height: 3)
+    var frameAspect: CGFloat { frameSize.width / max(1, frameSize.height) }
+    var framingWarning: String? {
+        abs(frameAspect - ViewfinderGeometry.photoAspect) > 0.01 ? "預覽來源非 4:3，已完整等比顯示" : nil
+    }
     @Published var histogram: [Float] = []
     @Published var styledFrame: CGImage?
     @Published var actualExposureOffset: Float = 0
@@ -97,12 +101,12 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         settings = restored
         super.init()
         UIDevice.current.isBatteryMonitoringEnabled = true
-        vision.onFrame = { [weak self] result, aspect, histogram, styled in
+        vision.onFrame = { [weak self] result, size, histogram, styled in
             DispatchQueue.main.async {
                 guard let self else { return }
                 guard result.configuration == FocusConfiguration(self.settings) else { return }
                 self.tracking = result
-                self.frameAspect = aspect
+                self.frameSize = size
                 self.histogram = histogram
                 guard self.settings.effective.autofocus != .manual else { return }
                 switch result.focusAction {
@@ -162,7 +166,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         settings = CameraSettings(); settings.program = .manual; settings.grid = false
         settings.histogram = false; settings.shutterSeconds = 1.0 / 1000; settings.iso = 400
         actualShutter = settings.shutterSeconds; actualISO = 400; battery = 0.8
-        frameAspect = 4.0 / 3; focalAtOne = nil
+        frameSize = CGSize(width: 1200, height: 900); focalAtOne = nil
         let size = CGSize(width: 1200, height: 900)
         uiFixture = UIGraphicsImageRenderer(size: size).image { c in
             UIColor(red: 0.24, green: 0.32, blue: 0.28, alpha: 1).setFill(); c.fill(CGRect(origin: .zero, size: size))
@@ -519,7 +523,13 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     }
     private func focusOnImagePoint(_ point: CGPoint, single: Bool, force: Bool = false) {
         guard isRunning, settings.effective.autofocus != .manual, let layer = previewLayer else { return }
-        let display = ViewfinderGeometry.display(point, imageAspect: frameAspect, size: layer.bounds.size)
+        // Vision points describe the delivered pixel buffer, not the preview layer's FOV.
+        let pixelRect = CGRect(x: min(frameSize.width - 1, max(0, point.x * frameSize.width)),
+                               y: min(frameSize.height - 1, max(0, point.y * frameSize.height)), width: 1, height: 1)
+        let metadata = videoOutput.metadataOutputRectConverted(fromOutputRect: pixelRect)
+        let layerRect = layer.layerRectConverted(fromMetadataOutputRect: metadata)
+        let display = CGPoint(x: layerRect.midX, y: layerRect.midY)
+        guard display.x.isFinite, display.y.isFinite else { return }
         let devicePoint = layer.captureDevicePointConverted(fromLayerPoint: display)
         sessionQueue.async {
             guard self.session.isRunning, let device = self.device else { return }

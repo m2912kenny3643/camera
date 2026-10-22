@@ -3,6 +3,10 @@ name: Build iPhone IPA
 on:
   push:
     branches: [main, codex/r6-0.4]
+    paths-ignore:
+      - 'docs/**'
+      - 'scripts/research_*.py'
+      - '.github/workflows/bird-research.yml'
   pull_request:
   workflow_dispatch:
 
@@ -72,7 +76,7 @@ jobs:
           set -euo pipefail
           xcodebuild test -project R6Camera.xcodeproj -scheme R6Camera \
             -destination "platform=iOS Simulator,id=$R6_SIMULATOR_UDID" \
-            -only-testing:R6CameraUITests -parallel-testing-enabled NO \
+            -only-testing:R6CameraTests -only-testing:R6CameraUITests -parallel-testing-enabled NO \
             -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
             -maximum-test-execution-time-allowance 240 \
             -resultBundlePath build/Tests.xcresult \
@@ -107,7 +111,7 @@ jobs:
       - name: Upload validation IPA after tests
         uses: actions/upload-artifact@v4
         with:
-          name: R6Camera-0.5-core-validation-IPA-no-bird-43-pending
+          name: R6Camera-0.5-validation-IPA-no-bird
           path: |
             build/R6Camera-unsigned.ipa
             build/model-provenance.json

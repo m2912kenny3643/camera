@@ -3,6 +3,7 @@ import SwiftUI
 struct QuickControlView: View {
     @ObservedObject var camera: CameraController
     let initial: CameraControl
+    let photo: CGRect
     let select: (CameraControl) -> Void
     let close: () -> Void
     private let left: [CameraControl] = [.mode, .area, .autofocus, .format, .drive]
@@ -12,27 +13,30 @@ struct QuickControlView: View {
             let control = initial
             ZStack(alignment: .bottom) {
                 if control.isLivePalette {
-                HStack(alignment: .top) {
-                    VStack(spacing: 3) { ForEach(left) { cell($0) } }
-                    Spacer()
+                HStack(alignment: .top, spacing: 0) {
+                    VStack(alignment: .leading, spacing: 3) { ForEach(left) { cell($0) } }
+                        .padding(.leading, 12).padding(.top, 8).frame(width: photo.minX, alignment: .leading)
+                    Color.clear.frame(width: photo.width).allowsHitTesting(false)
                     VStack(spacing: 3) {
                         Button(action: close) { Image(systemName: "arrow.uturn.backward").frame(width: 64, height: 30).overlay(Rectangle().stroke(.white.opacity(0.5))) }
                             .accessibilityIdentifier("quick.close")
                         ForEach(right) { cell($0) }
-                    }
+                    }.padding(.top, 8).frame(width: g.size.width - photo.maxX)
                 }.frame(maxHeight: .infinity, alignment: .top)
                 CameraControlEditor(camera: camera, control: control, palette: true, close: close)
-                    .id(control).frame(width: g.size.width - 150, height: paletteHeight)
+                    .id(control).frame(width: photo.width, height: paletteHeight)
+                    .position(x: photo.midX, y: photo.maxY - paletteHeight / 2)
                 } else {
                     CameraControlEditor(camera: camera, control: control, close: close).id(control)
                         .padding(.horizontal, 28).padding(.vertical, 4)
                 }
-            }.padding(8).background(control.isLivePalette ? Color.clear : .black)
+            }.background(control.isLivePalette ? Color.clear : .black)
         }.foregroundStyle(.white).buttonStyle(.plain)
     }
     private var paletteHeight: CGFloat {
         switch initial {
-        case .drive, .whiteBalance: return 140
+        case .drive: return 156
+        case .whiteBalance: return 140
         case .exposure: return 130
         default: return 100
         }

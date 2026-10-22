@@ -26,7 +26,7 @@ final class PhotoCaptureDataTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: XCTUnwrap(files.raw)), raw)
         XCTAssertNotNil(photo.warning)
         let gallery = PhotoCaptureData.galleryItems(try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil))
-        XCTAssertEqual(gallery, [try XCTUnwrap(files.raw)])
+        XCTAssertEqual(gallery.map { $0.resolvingSymlinksInPath() }, [try XCTUnwrap(files.raw).resolvingSymlinksInPath()])
     }
     func testCompleteAndEmptyCaptureIntegrity() {
         let complete = PhotoCaptureData(processed: Data([1]), raw: Data([2]), requiresRAW: true, error: nil)

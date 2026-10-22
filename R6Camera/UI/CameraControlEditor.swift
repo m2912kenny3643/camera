@@ -37,6 +37,13 @@ struct CameraControlEditor: View {
                         Slider(value: numericBinding, in: range, step: step).tint(accent).accessibilityIdentifier("editor.slider")
                     }.padding(.horizontal, 24).padding(.vertical, 8)
                 } else if control == .format { qualityOptions }
+                else if control == .drive && palette {
+                    GeometryReader { g in
+                        HStack(spacing: 3) {
+                            ForEach(options) { option in choice(option, compactWidth: max(24, (g.size.width - 18) / 7)) }
+                        }
+                    }.padding(.horizontal, 8).frame(height: 44)
+                }
                 else {
                     ScrollView(horizontal ? .horizontal : .vertical, showsIndicators: false) {
                         if horizontal { HStack(spacing: 6) { ForEach(options) { choice($0) } }.padding(10) }
@@ -92,19 +99,23 @@ struct CameraControlEditor: View {
     private func qualityChoice(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) { Text(title).padding(10).foregroundStyle(selected ? Color.cyan : .white).overlay(Rectangle().stroke(selected ? accent : .gray, lineWidth: selected ? 2 : 1)) }.accessibilityIdentifier("option.\(title)")
     }
-    private func choice(_ option: CameraChoice) -> some View {
+    private func choice(_ option: CameraChoice, compactWidth: CGFloat? = nil) -> some View {
         Button(action: option.action) {
             HStack(spacing: 10) {
                 if control == .style, let style = PictureStyle.allCases.first(where: { $0.rawValue == option.title }) { CanonGlyph(kind: .style, label: style.cameraCode) }
-                if control == .drive, let mode = DriveMode.allCases.first(where: { $0.label == option.title }) { CanonGlyph(kind: .drive, label: mode.code) }
+                if control == .drive, let mode = DriveMode.allCases.first(where: { $0.label == option.title }) {
+                    CanonGlyph(kind: .drive, label: mode.code)
+                        .scaleEffect(compactWidth.map { min(1, max(0.4, ($0 - 4) / 52)) } ?? 1)
+                        .frame(width: compactWidth.map { max(20, $0 - 4) }, height: 32)
+                }
                 if control == .whiteBalance { Image(systemName: option.symbol).font(.system(size: 18)) }
                 if control == .area { CanonGlyph(kind: .area) }
                 if control != .drive && control != .area { Text(option.title).font(.system(size: control == .autofocus ? 18 : 14, weight: .medium)).lineLimit(1) }
                 if !horizontal { Spacer(minLength: 2) }
                 if control == .eye { CanonGlyph(kind: .eye); Text(option.eyeCode).font(.system(size: 11, weight: .bold)).frame(width: 34) }
                 if control == .style { Text(String(format: "%.0f  %+.0f  %+.0f  %+.0f", draft.sharpness, draft.contrast, draft.saturation, draft.hue)).font(.system(size: 12, design: .monospaced)) }
-            }.foregroundStyle(option.selected ? Color.cyan : .white).padding(.horizontal, control == .drive ? 6 : 12)
-                .frame(minWidth: control == .autofocus ? 240 : horizontal ? control == .drive ? 52 : 80 : 0, minHeight: control == .autofocus ? 48 : 34).frame(maxWidth: horizontal ? nil : .infinity)
+            }.foregroundStyle(option.selected ? Color.cyan : .white).padding(.horizontal, compactWidth == nil ? control == .drive ? 6 : 12 : 2)
+                .frame(minWidth: compactWidth ?? (control == .autofocus ? 240 : horizontal ? control == .drive ? 52 : 80 : 0), minHeight: control == .autofocus ? 48 : 34).frame(maxWidth: horizontal ? nil : .infinity)
                 .background(option.selected ? Color.black : Color(white: 0.12)).overlay(Rectangle().stroke(option.selected ? accent : Color(white: 0.3), lineWidth: option.selected ? 2 : 1))
         }.accessibilityLabel(option.title).accessibilityIdentifier("option.\(option.title)").accessibilityValue(option.selected ? "已選取" : "")
     }

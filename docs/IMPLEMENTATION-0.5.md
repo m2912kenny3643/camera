@@ -2,11 +2,15 @@
 
 開始：2026-10-22 22:50 Asia/Taipei。基線 `ed632563898a1ed2e10d7158f7b588a887c0039b`，分支 `codex/r6-0.4`。基線 GitHub run 39766785728 為 success；本機 Python 五項測試通過。Windows 無 Swift/Xcode，Swift 與原生 App 必須由 GitHub macOS/Xcode 27 驗證。
 
-## 4:3 版面：等待確認，尚未套入 App
+## 4:3 版面：已確認並實作，等待原生與實拍驗收
 
 提案 [主畫面](design/0.5/01-main-43.png)、[Q](design/0.5/02-q-43.png)、[對照總圖](design/0.5/contact-sheet-43.png) 是可重現的設計圖，不是實際 App 截圖。中央 864×648，左右控制區，底部曝光列；沒有新增尚未實作的 AF 區域選項。人物與白框只是合成固定素材，不是模型準確度證據。
 
-依批准計畫要求，已送出版面確認問題；確認前不套用重大 UI 變更。共用取景／影像座標、真正完整 4:3、觸控側欄排除、各鏡頭 FOV、Q 及水平儀截圖仍待後續實作與驗收。
+使用者已回覆「確認，依此版面實作」。中央 4:3 viewport，HUD/Q 側欄與右側刻度盤分置黑色控制區，Q live palette 位於中央取景下方，完整二級頁仍全螢幕。七種驅動 glyph 依 palette 寬度縮放保持同列可觸控。
+
+原生預覽改 `resizeAspect`，styled／fixture 改 fit，`ViewfinderGeometry` 使用相同 aspect-fit 座標，letterbox 與左右側欄不觸發對焦。格線依實際影像範圍，水平儀與四邊拍攝回饋位於中央取景區。Vision 保留實際 CVPixelBuffer 尺寸，對焦由 output pixel rect→metadata→preview layer→capture device 轉換，不將影像點直接當 native preview 視角。
+
+保留 `.photo` preset 與原最大照片尺寸請求，不強制 activeFormat 或把16:9 buffer拉伸成4:3。這消除 App 額外滿版裁切，不能憑介面保證完整 CMOS 或 RAW／各 virtual lens 光學視角完全一致。實際 buffer／檔案比例不相符時 fit 顯示完整來源且需明示驗收差異。[原始資料研究](research/photo-framing-43-0.5.md)。
 
 ## 本次獨立核心變更
 

@@ -13,6 +13,13 @@ final class CameraUITests: XCTestCase {
         XCTAssertTrue(quick.waitForExistence(timeout: 10))
         XCTAssertGreaterThan(app.frame.width, app.frame.height)
         XCTAssertFalse(app.alerts.firstMatch.exists)
+        let viewfinder = app.descendants(matching: .any)["camera.viewfinder"]
+        XCTAssertEqual(viewfinder.frame.width / viewfinder.frame.height, 4.0 / 3, accuracy: 0.01)
+        XCTAssertGreaterThan(viewfinder.frame.minX, app.frame.minX + 40)
+        XCTAssertLessThan(viewfinder.frame.maxX, app.frame.maxX - 40)
+        let leftBlank = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: viewfinder.frame.minX - app.frame.minX - 5, dy: viewfinder.frame.midY - app.frame.minY))
+        leftBlank.tap()
+        XCTAssertFalse(app.buttons["focus.unlock"].exists)
         capture("01-Candidate-landscape")
         for orientation in [UIDeviceOrientation.landscapeLeft, .portrait, .landscapeRight] {
             XCUIDevice.shared.orientation = orientation
@@ -22,6 +29,7 @@ final class CameraUITests: XCTestCase {
         app.buttons["zoom.open"].tap()
         let wheel = app.descendants(matching: .any)["zoom.wheel"]
         XCTAssertTrue(wheel.waitForExistence(timeout: 3))
+        XCTAssertGreaterThanOrEqual(wheel.frame.minX, viewfinder.frame.maxX - 1)
         capture("02-Zoom-wheel")
         let originalZoom = Double(wheel.value as? String ?? "")!
         let start = wheel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
@@ -35,6 +43,7 @@ final class CameraUITests: XCTestCase {
         quick.tap()
         XCTAssertTrue(app.buttons["quick.eye"].waitForExistence(timeout: 5))
         capture("03-Q-live-palette")
+        XCTAssertEqual(viewfinder.frame.width / viewfinder.frame.height, 4.0 / 3, accuracy: 0.01)
         app.buttons["quick.eye"].tap()
         XCTAssertTrue(app.buttons["option.左眼優先"].waitForExistence(timeout: 5))
         capture("03-Q-Eye-options")

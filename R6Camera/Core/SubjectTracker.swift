@@ -211,14 +211,23 @@ extension CGRect {
 }
 
 enum ViewfinderGeometry {
+    static let photoAspect: CGFloat = 4.0 / 3
+    static func photoRect(in size: CGSize) -> CGRect {
+        imageRect(imageAspect: photoAspect, in: size)
+    }
     static func imageRect(imageAspect: CGFloat, in size: CGSize) -> CGRect {
         guard size.width > 0, size.height > 0, imageAspect > 0 else { return .zero }
         if size.width / size.height > imageAspect {
-            let height = size.width / imageAspect
-            return CGRect(x: 0, y: (size.height - height) / 2, width: size.width, height: height)
+            let width = size.height * imageAspect
+            return CGRect(x: (size.width - width) / 2, y: 0, width: width, height: size.height)
         }
-        let width = size.height * imageAspect
-        return CGRect(x: (size.width - width) / 2, y: 0, width: width, height: size.height)
+        let height = size.width / imageAspect
+        return CGRect(x: 0, y: (size.height - height) / 2, width: size.width, height: height)
+    }
+    static func normalizedIfInside(_ point: CGPoint, imageAspect: CGFloat, size: CGSize) -> CGPoint? {
+        let rect = imageRect(imageAspect: imageAspect, in: size)
+        guard !rect.isEmpty, rect.contains(point) else { return nil }
+        return normalized(point, imageAspect: imageAspect, size: size)
     }
     static func display(_ point: CGPoint, imageAspect: CGFloat, size: CGSize) -> CGPoint {
         let rect = imageRect(imageAspect: imageAspect, in: size)

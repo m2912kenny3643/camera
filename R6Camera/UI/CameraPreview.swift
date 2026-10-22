@@ -10,7 +10,7 @@ struct CameraPreview: UIViewRepresentable {
         #if !targetEnvironment(simulator)
         view.previewLayer.session = camera.session
         #endif
-        view.previewLayer.videoGravity = .resizeAspectFill
+        view.previewLayer.videoGravity = .resizeAspect
         camera.previewLayer = view.previewLayer
         let interaction = AVCaptureEventInteraction { [weak camera, weak view] event in
             guard let camera, let view else { return }

@@ -3,6 +3,12 @@ import ImageIO
 import UniformTypeIdentifiers
 
 enum PhotoRenderer {
+    static func preview(_ image: CIImage, settings: CameraSettings) -> CIImage {
+        let scene = applyStyle(image, settings: settings)
+        guard settings.peaking && settings.autofocus == .manual else { return scene }
+        let edges = image.applyingFilter("CIEdges", parameters: [kCIInputIntensityKey: 4])
+        return edges.applyingFilter("CIScreenBlendMode", parameters: [kCIInputBackgroundImageKey: scene])
+    }
     static func applyStyle(_ input: CIImage, settings: CameraSettings) -> CIImage {
         var contrast = 1.0, saturation = 1.0
         switch settings.style {

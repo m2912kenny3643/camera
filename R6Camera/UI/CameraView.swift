@@ -18,12 +18,15 @@ struct CameraView: View {
         GeometryReader { proxy in
             let unit = min(proxy.size.height / 385, proxy.size.width / 820)
             VStack(spacing: 0) {
-                ZStack {
-                    viewfinder
-                    if zoomOpen { ZoomWheel(camera: camera) { zoomOpen = false } }
-                    if quick == nil { hud(unit: unit) }
-                    if let quick { QuickControlView(camera: camera, initial: quick, select: { self.quick = $0 }) { self.quick = nil } }
-                }.clipped()
+                GeometryReader { main in
+                    let photo = ViewfinderGeometry.photoRect(in: main.size)
+                    ZStack(alignment: .topLeading) {
+                        viewfinder.frame(width: photo.width, height: photo.height).position(x: photo.midX, y: photo.midY)
+                        if zoomOpen { ZoomWheel(camera: camera, railWidth: main.size.width - photo.maxX) { zoomOpen = false } }
+                        if quick == nil { hud(unit: unit, photo: photo, size: main.size) }
+                        if let quick { QuickControlView(camera: camera, initial: quick, photo: photo, select: { self.quick = $0 }) { self.quick = nil } }
+                    }.frame(width: main.size.width, height: main.size.height).clipped()
+                }
                 if quick == nil || quick?.isLivePalette == true { exposureBar.frame(height: max(36, 43 * unit)) }
             }.font(.system(size: max(11, 14 * unit), weight: .medium)).background(.black).foregroundStyle(.white)
         }
@@ -72,20 +75,27 @@ struct CameraView: View {
             ZStack {
                 CameraPreview(camera: camera)
                 if let frame = camera.styledFrame {
-                    Image(decorative: frame, scale: 1).resizable().scaledToFill().frame(width: g.size.width, height: g.size.height)
+                    Color.black.allowsHitTesting(false)
+                    Image(decorative: frame, scale: 1).resizable().scaledToFit().frame(width: g.size.width, height: g.size.height)
                         .scaleEffect(magnification && camera.settings.effective.autofocus == .manual ? 3 : 1)
-                        .blendMode(camera.settings.peaking && camera.settings.effective.autofocus == .manual ? .screen : .normal).allowsHitTesting(false)
+                        .allowsHitTesting(false)
                 }
                 if let fixture = camera.uiFixture {
-                    Image(uiImage: fixture).resizable().scaledToFill().frame(width: g.size.width, height: g.size.height).allowsHitTesting(false)
+                    Image(uiImage: fixture).resizable().scaledToFit().frame(width: g.size.width, height: g.size.height).allowsHitTesting(false)
                 }
                 Color.clear.contentShape(Rectangle()).onTapGesture { point in
-                    camera.tap(at: ViewfinderGeometry.normalized(point, imageAspect: camera.frameAspect, size: g.size))
+                    zoomOpen = false
+                    guard let normalized = ViewfinderGeometry.normalizedIfInside(point, imageAspect: camera.frameAspect, size: g.size) else { return }
+                    camera.tap(at: normalized)
                 }.simultaneousGesture(MagnifyGesture().onChanged { value in
                     if pinchStart == nil { pinchStart = camera.zoom }
                     camera.setZoom((pinchStart ?? camera.zoom) * value.magnification)
                 }.onEnded { _ in pinchStart = nil })
-                if camera.settings.grid && info { GridLines().stroke(.white.opacity(0.3), lineWidth: 0.5).allowsHitTesting(false) }
+                if camera.settings.grid && info {
+                    let image = ViewfinderGeometry.imageRect(imageAspect: camera.frameAspect, in: g.size)
+                    GridLines().stroke(.white.opacity(0.3), lineWidth: 0.5)
+                        .frame(width: image.width, height: image.height).position(x: image.midX, y: image.midY).allowsHitTesting(false)
+                }
                 if camera.settings.effective.autofocus != .manual {
                     TrackingOverlay(result: camera.tracking, eyes: camera.settings.effective.eyes, aspect: camera.frameAspect).allowsHitTesting(false)
                 }
@@ -102,76 +112,87 @@ struct CameraView: View {
                 .accessibilityValue(feedback.isActive ? "拍攝回饋" : "即時取景")
         }
     }
-    private func hud(unit: CGFloat) -> some View {
-        VStack(spacing: 2) {
-            HStack(alignment: .top) {
-                Button { open(.mode) } label: { Text(camera.settings.program.rawValue).font(.system(size: 31 * unit, weight: .bold)).frame(minWidth: 40) }.accessibilityIdentifier("hud.mode")
-                Spacer()
-                if info && camera.settings.histogram {
-                    HistogramView(values: camera.histogram).frame(width: 92, height: 33)
+    private func hud(unit: CGFloat, photo: CGRect, size: CGSize) -> some View {
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 3 * unit) {
+                Button { open(.mode) } label: {
+                    Text(camera.settings.program.rawValue).font(.system(size: 31 * unit, weight: .bold)).frame(minWidth: 40, alignment: .leading)
+                }.accessibilityIdentifier("hud.mode")
+                CameraMarkButton(title: "自動對焦區域", action: { open(.area) }) { CanonGlyph(kind: .area) }
+                Button { open(.autofocus) } label: {
+                    Text(camera.settings.effective.autofocus.rawValue).font(.system(size: 11 * unit, weight: .semibold)).frame(minHeight: 27)
+                }.accessibilityIdentifier("hud.af")
+                if info {
+                    CameraMarkButton(title: "影像畫質", action: { open(.format) }) { CanonGlyph(kind: .quality, label: camera.settings.format == .raw ? "R" : "L") }
+                        .accessibilityIdentifier("hud.format").accessibilityValue(camera.settings.format.rawValue)
+                    CameraMarkButton(title: "驅動模式", action: { open(.drive) }) { CanonGlyph(kind: .drive, label: camera.settings.drive.code) }
+                        .accessibilityIdentifier("hud.drive").accessibilityValue(camera.settings.drive.label)
+                    CameraMarkButton(title: "要偵測的主體", action: { open(.subject) }) { CanonGlyph(kind: .subject, label: camera.settings.effective.subjects.rawValue) }
+                    Text(camera.birdStatus.hasPrefix("鳥眼模型已載入") ? "鳥眼：待驗收" : "鳥眼未啟用").font(.system(size: 9)).foregroundStyle(.gray)
+                    if let warning = camera.framingWarning { Text(warning).font(.system(size: 9)).foregroundStyle(.yellow).lineLimit(2) }
+                    if let fps = camera.burstFPS, camera.settings.drive.isBurst {
+                        Text(String(format: "實際 %.1f 張/s", fps)).font(.caption2).monospacedDigit()
+                    }
+                    if let requested = camera.burstRequestFPS, camera.settings.drive.isBurst {
+                        Text(String(format: "請求 ≤%.1f", requested)).font(.caption2).monospacedDigit()
+                    }
                 }
-                if camera.captureBusy || (camera.isRunning && !camera.captureReady) { Text("BUSY").font(.caption2).foregroundStyle(.yellow) }
-                if let fps = camera.burstFPS, camera.settings.drive.isBurst { Text(String(format: "%.1f 張/s", fps)).font(.caption2).monospacedDigit() }
-                if let requested = camera.burstRequestFPS, camera.settings.drive.isBurst {
-                    Text(String(format: "請求 ≤%.1f", requested)).font(.caption2).monospacedDigit()
+                Spacer(minLength: 0)
+                if camera.tracking.lost { Text("目標遺失，請重選").font(.system(size: 9)).foregroundStyle(.yellow) }
+                else if let notice { Text(notice).font(.system(size: 9)).lineLimit(3) }
+                else if camera.settings.drive.isBurst, let reason = camera.burstLimitReason {
+                    Text(reason).font(.system(size: 9)).foregroundStyle(.yellow).lineLimit(2)
                 }
-                if camera.pendingPhotos > 0 { Text("寫入 \(camera.pendingPhotos)").font(.caption2) }
-                if camera.battery >= 0 {
-                    Image(systemName: camera.battery < 0.2 ? "battery.25percent" : "battery.75percent").foregroundStyle(camera.battery < 0.2 ? .red : .white)
-                    Text("\(Int(camera.battery*100))%").font(.caption2).monospacedDigit()
-                }
-                if let remaining = camera.remainingShots { Text("\(remaining)").monospacedDigit() }
-                Button { open(.area) } label: {
-                    Text("Q").font(.system(size: 23 * unit, weight: .semibold)).frame(width: 38, height: 33).overlay(RoundedRectangle(cornerRadius: 3).stroke(.white, lineWidth: 1))
-                }.accessibilityIdentifier("quick.open").padding(.leading, 8)
-            }
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 3 * unit) {
-                    CameraMarkButton(title: "自動對焦區域", action: { open(.area) }) { CanonGlyph(kind: .area) }
-                    Button { open(.autofocus) } label: { Text(camera.settings.effective.autofocus.rawValue).font(.system(size: 11 * unit, weight: .semibold)).frame(minHeight: 27) }.accessibilityIdentifier("hud.af")
-                    if info {
-                        CameraMarkButton(title: "影像畫質", action: { open(.format) }) { CanonGlyph(kind: .quality, label: camera.settings.format == .raw ? "R" : "L") }.accessibilityIdentifier("hud.format").accessibilityValue(camera.settings.format.rawValue)
-                        CameraMarkButton(title: "驅動模式", action: { open(.drive) }) { CanonGlyph(kind: .drive, label: camera.settings.drive.code) }.accessibilityIdentifier("hud.drive").accessibilityValue(camera.settings.drive.label)
-                        Text("FULL").font(.system(size: 10))
-                        Spacer(minLength: 0)
-                        Button("INFO") {
-                            cycleInfo()
-                        }.font(.system(size: 10)).frame(minHeight: 30)
-                            .accessibilityIdentifier(feedbackFixture ? "fixture.capture" : "camera.info")
-                            .accessibilityValue(feedbackFixture ? String(camera.captureFeedback) : "")
-                    }
-                }.frame(width: 63 * unit, alignment: .leading)
-                Spacer()
-                VStack(alignment: .trailing, spacing: 3 * unit) {
-                    if info && !zoomOpen {
-                        CameraMarkButton(title: "白平衡", action: { open(.whiteBalance) }) { Text(camera.settings.effective.whiteBalance.rawValue).font(.system(size: 13, weight: .bold)).padding(2).overlay(Rectangle().stroke(.white)) }
-                        CameraMarkButton(title: "相片風格", action: { open(.style) }) { CanonGlyph(kind: .style, label: camera.settings.effective.style.cameraCode) }
-                        CameraMarkButton(title: "測光模式", action: { open(.meter) }) { CanonGlyph(kind: .meter) }
-                        CameraMarkButton(title: "要偵測的主體", action: { open(.subject) }) { CanonGlyph(kind: .subject, label: camera.settings.effective.subjects.rawValue) }
-                    }
-                    Spacer(minLength: 0)
-                    if camera.tracking.locked || camera.tracking.touchPoint != nil {
-                        Button { camera.unlockTracking() } label: { Image(systemName: "xmark").frame(width: 38, height: 30).background(.black.opacity(0.5)) }.accessibilityLabel("解除觸控對焦").accessibilityIdentifier("focus.unlock")
-                    }
-                    if camera.settings.effective.autofocus == .manual { Button { magnification.toggle() } label: { Image(systemName: "plus.magnifyingglass").frame(width: 38, height: 30) } }
-                    if !zoomOpen {
-                        Button { quick = nil; zoomOpen = true } label: {
-                            Text(String(format: "%g×", Double((camera.zoom * 10).rounded() / 10))).font(.system(size: 14, weight: .medium)).frame(width: 40, height: 40).background(Circle().fill(.black.opacity(0.25))).overlay(Circle().stroke(.white, lineWidth: 1))
-                        }.accessibilityIdentifier("zoom.open")
-                    }
-                }.frame(width: 66 * unit)
-            }
-            if camera.tracking.lost { Text("目標遺失 · 請重新點選").font(.caption2).padding(3).background(.black.opacity(0.65)) }
-            else if let notice { Text(notice).font(.caption2).padding(3).background(.black.opacity(0.65)) }
-            else if camera.settings.drive.isBurst, let reason = camera.burstLimitReason {
-                Text(reason).font(.caption2).padding(3).background(.black.opacity(0.65))
-            }
-            if !info {
-                Button("INFO") { cycleInfo() }.font(.caption2)
+                Button("INFO") { cycleInfo() }.font(.system(size: 10)).frame(minHeight: 30)
                     .accessibilityIdentifier(feedbackFixture ? "fixture.capture" : "camera.info")
                     .accessibilityValue(feedbackFixture ? String(camera.captureFeedback) : "")
-            }
-        }.padding(.horizontal, 12).padding(.vertical, 7).buttonStyle(.plain).shadow(color: .black, radius: 1, x: 0, y: 1)
+            }.padding(.leading, 12).padding(.trailing, 8).padding(.vertical, 7)
+                .frame(width: photo.minX, height: size.height, alignment: .topLeading)
+                .accessibilityIdentifier("camera.leftRail")
+            Color.clear.frame(width: photo.width, height: size.height).allowsHitTesting(false)
+            VStack(alignment: .trailing, spacing: 7) {
+                HStack {
+                    if camera.battery >= 0 { Text("\(Int(camera.battery * 100))%").font(.caption2).monospacedDigit() }
+                    Spacer(minLength: 2)
+                    Button { open(.area) } label: {
+                        Text("Q").font(.system(size: 23 * unit, weight: .semibold)).frame(width: 38, height: 33)
+                            .overlay(RoundedRectangle(cornerRadius: 3).stroke(.white, lineWidth: 1))
+                    }.accessibilityIdentifier("quick.open")
+                }
+                if info {
+                    HStack {
+                        CameraMarkButton(title: "白平衡", action: { open(.whiteBalance) }) {
+                            Text(camera.settings.effective.whiteBalance.rawValue).font(.system(size: 13, weight: .bold)).padding(2).overlay(Rectangle().stroke(.white))
+                        }
+                        Spacer(minLength: 2)
+                        CameraMarkButton(title: "相片風格", action: { open(.style) }) { CanonGlyph(kind: .style, label: camera.settings.effective.style.cameraCode) }
+                    }
+                    if !zoomOpen {
+                        CameraMarkButton(title: "測光模式", action: { open(.meter) }) { CanonGlyph(kind: .meter) }
+                        if camera.settings.histogram { HistogramView(values: camera.histogram).frame(maxWidth: 92).frame(height: 33) }
+                    }
+                    if camera.captureBusy || (camera.isRunning && !camera.captureReady) { Text("BUSY").font(.caption2).foregroundStyle(.yellow) }
+                    if camera.pendingPhotos > 0 { Text("寫入 \(camera.pendingPhotos)").font(.caption2) }
+                    if let remaining = camera.remainingShots { Text("\(remaining)").font(.caption2).monospacedDigit() }
+                }
+                Spacer(minLength: 0)
+                if camera.tracking.locked || camera.tracking.touchPoint != nil {
+                    Button { camera.unlockTracking() } label: { Image(systemName: "xmark").frame(width: 38, height: 30) }
+                        .accessibilityLabel("解除觸控對焦").accessibilityIdentifier("focus.unlock")
+                }
+                if camera.settings.effective.autofocus == .manual {
+                    Button { magnification.toggle() } label: { Image(systemName: "plus.magnifyingglass").frame(width: 38, height: 30) }
+                }
+                if !zoomOpen {
+                    Button { quick = nil; zoomOpen = true } label: {
+                        Text(String(format: "%g×", Double((camera.zoom * 10).rounded() / 10))).font(.system(size: 14, weight: .medium))
+                            .frame(width: 40, height: 40).overlay(Circle().stroke(.white, lineWidth: 1))
+                    }.accessibilityIdentifier("zoom.open")
+                }
+            }.padding(.horizontal, 12).padding(.vertical, 7)
+                .frame(width: size.width - photo.maxX, height: size.height, alignment: .topTrailing)
+                .accessibilityIdentifier("camera.rightRail")
+        }.buttonStyle(.plain).lineLimit(1).minimumScaleFactor(0.65)
     }
     private var feedbackFixture: Bool {
         camera.isUIFixture && ProcessInfo.processInfo.environment["R6_UI_FEEDBACK_TEST"] == "1"

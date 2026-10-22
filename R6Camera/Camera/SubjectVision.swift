@@ -12,7 +12,7 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private let renderSlot = DispatchSemaphore(value: 1)
     private let snapshotLock = NSLock()
     private var previewSettings = CameraSettings()
-    var onFrame: ((TrackingResult, CGFloat, [Float], CGImage?) -> Void)?
+    var onFrame: ((TrackingResult, CGSize, [Float], CGImage?) -> Void)?
     var onPreview: ((CGImage) -> Void)?
     var onModelError: ((String) -> Void)?
     var onBirdStatus: ((String) -> Void)?
@@ -22,6 +22,7 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var birdModel: BirdPoseModel?
     private var lastFrame: Double = 0
     private var lastAspect: CGFloat = 0
+    private var lastFrameSize = CGSize(width: 4, height: 3)
     private let context = CIContext(options: [.cacheIntermediates: false])
     private let renderContext = CIContext(options: [.cacheIntermediates: false])
 
@@ -36,7 +37,7 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 self.settings = settings
                 var cleared = self.tracker.result
                 cleared.focusAction = settings.autofocus == .manual ? .none : .scene
-                self.publish(cleared, aspect: max(self.lastAspect, 1), histogram: [])
+                self.publish(cleared, histogram: [])
             }
             self.settings = settings
         }
@@ -45,13 +46,13 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         queue.async {
             guard self.settings.autofocus != .manual else { return }
             self.tracker.select(at: point, eyes: self.settings.eyes, mode: self.settings.autofocus)
-            self.publish(self.tracker.result, aspect: max(self.lastAspect, 1), histogram: [])
+            self.publish(self.tracker.result, histogram: [])
         }
     }
     func unlock() {
         queue.async {
             self.tracker.unlock()
-            self.publish(self.tracker.result, aspect: max(self.lastAspect, 1), histogram: [])
+            self.publish(self.tracker.result, histogram: [])
         }
     }
     func reset() { queue.async { self.tracker.reset(); self.lastAspect = 0 } }
@@ -96,6 +97,7 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     }
     private func processFrame(_ buffer: CVPixelBuffer, at now: Double) {
         let aspect = CGFloat(CVPixelBufferGetWidth(buffer)) / CGFloat(CVPixelBufferGetHeight(buffer))
+        lastFrameSize = CGSize(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer))
         if abs(aspect - lastAspect) > 0.1 { tracker.reset(); lastAspect = aspect }
         let handler = VNImageRequestHandler(cvPixelBuffer: buffer, orientation: .up)
         var detections: [SubjectDetection] = []
@@ -142,25 +144,19 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         let scale = min(1, 960 / original.extent.width)
         let image = original.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         let histogram = settings.histogram ? luminanceHistogram(image) : []
-        publish(result, aspect: aspect, histogram: histogram)
+        publish(result, histogram: histogram)
     }
-    private func publish(_ result: TrackingResult, aspect: CGFloat, histogram: [Float]) {
+    private func publish(_ result: TrackingResult, histogram: [Float]) {
         var snapshot = result
         snapshot.configuration = FocusConfiguration(settings)
-        onFrame?(snapshot, aspect, histogram, nil)
+        onFrame?(snapshot, lastFrameSize, histogram, nil)
     }
     func finishPreview() { renderSlot.signal() }
     private func renderPreview(_ buffer: CVPixelBuffer, settings: CameraSettings) {
         let original = CIImage(cvPixelBuffer: buffer)
         let scale = min(1, 960 / original.extent.width)
         let image = original.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-        let rendered: CIImage
-        if settings.peaking && settings.autofocus == .manual {
-            let edges = image.applyingFilter("CIEdges", parameters: [kCIInputIntensityKey: 4])
-            rendered = edges
-        } else {
-            rendered = PhotoRenderer.applyStyle(image, settings: settings)
-        }
+        let rendered = PhotoRenderer.preview(image, settings: settings)
         if let preview = renderContext.createCGImage(rendered, from: image.extent), let onPreview {
             onPreview(preview)
         } else { finishPreview() }
