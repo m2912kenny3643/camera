@@ -22,6 +22,8 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     private var readinessCoordinator: AVCapturePhotoOutputReadinessCoordinator?
     private var captureCancellation: CaptureCancellation?
     private var burstMeasurement: CaptureCancellation?
+    private var burstDiagnostics: BurstDiagnostics?
+    private var frameFreshness = FrameFreshness() // main queue; reject delayed/out-of-order inference callbacks.
     private var zoomCommand = 0 // main queue; latest command reconciles hardware clamping.
     private var configured = false
     private var referenceZoom: CGFloat = 1
@@ -89,6 +91,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     @Published private(set) var burstIntervals: [Double] = []
     @Published private(set) var burstRequestFPS: Double?
     @Published private(set) var burstLimitReason: String?
+    @Published private(set) var burstReportText: String?
     @Published private(set) var lastPhotoDimensions: String?
     private var requestedPhotoPixels: Int64 = 0 // main queue snapshot of output configuration.
     private var responsiveCapture = false
@@ -105,6 +108,8 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             DispatchQueue.main.async {
                 guard let self else { return }
                 guard result.configuration == FocusConfiguration(self.settings) else { return }
+                if let timestamp = result.observedAt,
+                   !self.frameFreshness.accept(timestamp, now: CACurrentMediaTime()) { return }
                 if self.styledFrame == nil { self.frameSize = size }
                 guard abs(self.frameAspect - size.width / max(1, size.height)) < 0.01 else { return }
                 self.tracking = result
@@ -622,9 +627,19 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         let profile = BurstProfile(settings: snapshot, responsive: responsiveCapture,
                                    photoPixels: requestedPhotoPixels, exposure: exposure)
         burstRequestFPS = profile.requestFPS; burstLimitReason = profile.reason
+        burstDiagnostics = BurstDiagnostics(mode: snapshot.drive.code, format: snapshot.format.rawValue,
+                                            requestedPixels: requestedPhotoPixels, exposure: exposure,
+                                            requestFPS: profile.requestFPS,
+                                            device: "\(UIDevice.current.model) · \(ProcessInfo.processInfo.operatingSystemVersionString)",
+                                            startedAt: ProcessInfo.processInfo.systemUptime)
+        burstReportText = nil
         captureTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.captureTask = nil; self.captureCancellation = nil; self.captureBusy = false }
+            defer {
+                self.captureTask = nil; self.captureCancellation = nil; self.captureBusy = false
+                self.burstDiagnostics?.stop(at: ProcessInfo.processInfo.systemUptime)
+                self.publishBurstReport()
+            }
             var cadence = BurstCadence(fps: profile.requestFPS,
                                        exposure: exposure,
                                        now: ProcessInfo.processInfo.systemUptime)
@@ -634,7 +649,10 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                     let accepted = attempt.accepted
                     _ = cadence.admit(at: ProcessInfo.processInfo.systemUptime, ready: accepted)
                     self.captureBusy = !accepted
-                    if !accepted { self.burstLimitReason = attempt.reason }
+                    if !accepted {
+                        self.burstLimitReason = attempt.reason
+                        if let reason = attempt.reason { self.burstDiagnostics?.blocked(reason) }
+                    }
                     else if cadence.interval > 1 / profile.requestFPS * 1.2 {
                         self.burstLimitReason = "拍攝／處理降速"
                     } else { self.burstLimitReason = profile.reason }
@@ -644,6 +662,10 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         }
     }
     func cancelCapture() { captureCancellation?.cancel(); captureTask?.cancel() }
+    private func publishBurstReport() {
+        guard burstDiagnostics?.stoppedAt != nil else { return }
+        burstReportText = burstDiagnostics?.reportText()
+    }
     private func makePhotoSettings(_ settings: CameraSettings) throws -> (AVCapturePhotoSettings, UTType) {
         let raw = settings.format == .raw ? photoOutput.availableRawPhotoPixelFormatTypes.first : nil
         guard settings.format != .raw || raw != nil else {
@@ -693,6 +715,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                     guard let self else { return }
                     self.captureFeedback &+= 1
                     if settings.drive.isBurst && self.burstMeasurement === cancellation {
+                        self.burstDiagnostics?.captured(id: capture.uniqueID, at: timestamp)
                         if let previous = self.lastBurstExposureTime {
                             self.burstIntervals.append(timestamp - previous)
                             if self.burstIntervals.count > 120 { self.burstIntervals.removeFirst() }
@@ -703,11 +726,28 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                 }
             }) { [weak self] result in
                 guard let self else { return }
+                let processedAt = ProcessInfo.processInfo.systemUptime
+                DispatchQueue.main.async {
+                    if self.burstMeasurement === cancellation { self.burstDiagnostics?.processed(id: capture.uniqueID, at: processedAt) }
+                }
                 self.sessionQueue.async {
                     self.jobs.removeValue(forKey: capture.uniqueID)
                     self.renderingPhotos += 1
                     DispatchQueue.main.async { self.readinessCoordinator?.stopTrackingCaptureRequest(using: capture.uniqueID) }
-                    self.renderQueue.async { self.finishPhoto(result, id: capture.uniqueID) }
+                    self.renderQueue.async {
+                        let renderStartedAt = ProcessInfo.processInfo.systemUptime
+                        DispatchQueue.main.async {
+                            if self.burstMeasurement === cancellation { self.burstDiagnostics?.rendering(id: capture.uniqueID, at: renderStartedAt) }
+                        }
+                        self.finishPhoto(result, id: capture.uniqueID) { success, dimensions in
+                            let storedAt = ProcessInfo.processInfo.systemUptime
+                            DispatchQueue.main.async {
+                                guard self.burstMeasurement === cancellation else { return }
+                                self.burstDiagnostics?.stored(id: capture.uniqueID, at: storedAt, succeeded: success, dimensions: dimensions)
+                                self.publishBurstReport()
+                            }
+                        }
+                    }
                 }
             }
             self.jobs[capture.uniqueID] = job
@@ -723,6 +763,10 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                         DispatchQueue.main.async { self.pendingPhotos = count }
                         continuation.resume(returning: .cancelled); return
                     }
+                    let requestedAt = ProcessInfo.processInfo.systemUptime
+                    DispatchQueue.main.async {
+                        if self.burstMeasurement === cancellation { self.burstDiagnostics?.requested(id: capture.uniqueID, at: requestedAt) }
+                    }
                     self.photoOutput.capturePhoto(with: capture, delegate: job)
                     continuation.resume(returning: .accepted)
                 }
@@ -730,8 +774,11 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         }
         }
     }
-    private func finishPhoto(_ result: Result<PhotoJob.Output, Error>, id: Int64) {
+    private func finishPhoto(_ result: Result<PhotoJob.Output, Error>, id: Int64, measured: (Bool, String?) -> Void) {
+        var succeeded = false
+        var dimensions: String?
         defer {
+            measured(succeeded, dimensions)
             sessionQueue.async {
                 self.renderingPhotos -= 1
                 let count = self.jobs.count + self.renderingPhotos
@@ -740,6 +787,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         }
         do {
             let output = try result.get()
+            dimensions = output.dimensions
             DispatchQueue.main.async { self.lastPhotoDimensions = output.dimensions }
             let directory = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             let stem = "R6_\(Int(Date().timeIntervalSince1970))_\(id)"
@@ -762,6 +810,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             do {
                 let rendered = try PhotoRenderer.render(processed, settings: output.settings, type: output.type, context: photoContext)
                 try rendered.write(to: url, options: .atomic)
+                succeeded = output.data.warning == nil && files.warning == nil
             } catch {
                 self.report(self.cameraError("風格處理失敗，已保留原始照片：\(error.localizedDescription)"))
             }

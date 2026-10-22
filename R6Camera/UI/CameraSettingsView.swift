@@ -59,6 +59,10 @@ struct CameraSettingsView: View {
                             menuRow("解除觸控對焦", value: "清除") { camera.unlockTracking() }
                         }
                         if tab == 3 {
+                            if let report = camera.burstReportText {
+                                ShareLink(item: report) { Label("分享最近連拍量測 JSON", systemImage: "square.and.arrow.up") }
+                                    .font(.system(size: 13)).padding(.vertical, 6).accessibilityIdentifier("burst.shareReport")
+                            }
                             toggleRow("格線", path: \.grid)
                             toggleRow("亮度直方圖", path: \.histogram)
                             menuRow(CameraControl.level.rawValue, value: camera.settings.levelSize.rawValue) { editor = .level }.accessibilityIdentifier("menu.水平儀顯示大小")

@@ -97,14 +97,18 @@ final class CameraUITests: XCTestCase {
         let drive = app.buttons["hud.drive"]
         drive.tap()
         app.buttons["option.高速連拍 H+"].tap()
+        app.buttons["drive.rate.12"].tap()
         capture("05-Drive-Hplus-pending")
         app.buttons["editor.confirm"].tap()
         XCTAssertEqual(drive.value as? String, "高速連拍 H+")
         drive.tap()
+        XCTAssertEqual(app.buttons["drive.rate.12"].value as? String, "已選取")
+        app.buttons["drive.rate.10"].tap()
         app.buttons["option.高速連拍 H"].tap()
         app.buttons["editor.back"].tap()
         XCTAssertEqual(drive.value as? String, "高速連拍 H+")
         drive.tap()
+        XCTAssertEqual(app.buttons["drive.rate.12"].value as? String, "已選取")
         XCTAssertTrue(app.buttons["option.自拍連拍"].isHittable)
         app.buttons["option.自拍連拍"].tap()
         let count = app.steppers["drive.timerCount"]
@@ -129,6 +133,7 @@ final class CameraUITests: XCTestCase {
         info.tap()
         XCTAssertTrue(app.descendants(matching: .any)["camera.level"].waitForExistence(timeout: 3))
         XCTAssertEqual(app.descendants(matching: .any)["camera.level"].value as? String, "水平")
+        assertLevelCentered(app)
         capture("07-Level-large")
         info.tap(); info.tap() // clean -> full; one launch preserves all other test state.
         app.buttons["MENU"].tap()
@@ -137,8 +142,15 @@ final class CameraUITests: XCTestCase {
         app.buttons["menu.close"].tap()
         info.tap()
         XCTAssertTrue(app.descendants(matching: .any)["camera.level"].waitForExistence(timeout: 3))
+        assertLevelCentered(app)
         capture("08-Level-small")
         info.tap(); info.tap()
+    }
+    private func assertLevelCentered(_ app: XCUIApplication) {
+        let level = app.descendants(matching: .any)["camera.level"].frame
+        let photo = app.descendants(matching: .any)["camera.viewfinder"].frame
+        XCTAssertEqual(level.midX, photo.midX, accuracy: 1)
+        XCTAssertEqual(level.midY, photo.midY, accuracy: 1)
     }
     private func verifyProgramRestrictionsPreserveWhiteBalance(_ app: XCUIApplication) {
         app.buttons["hud.mode"].tap(); app.buttons["option.A+"].tap(); app.buttons["editor.confirm"].tap()

@@ -1,5 +1,11 @@
 import Foundation
 
+enum BurstRateTrial: Int, Codable, CaseIterable {
+    case standard = 8, faster = 10, fastest = 12
+    var label: String { self == .standard ? "8 張/s" : "測試 \(rawValue) 張/s" }
+    var highFPS: Double { self == .standard ? 4 : 6 }
+}
+
 enum CaptureAdmission {
     case accepted, systemNotReady, bufferFull, cancelled, unsupportedFormat
     var accepted: Bool { if case .accepted = self { return true }; return false }
@@ -22,7 +28,7 @@ struct BurstProfile {
         let canOverlapFaster = responsive && photoPixels > 0 && photoPixels <= 24_000_000
             && settings.format != .raw && !settings.requiresExactExposure
         let ceiling = canOverlapFaster
-            ? (settings.drive == .burstHighPlus ? 8.0 : settings.drive == .burst ? 4.0 : 1.0)
+            ? (settings.drive == .burstHighPlus ? Double(settings.burstRateTrial.rawValue) : settings.drive == .burst ? settings.burstRateTrial.highFPS : 1.0)
             : settings.drive.fps
         requestFPS = min(ceiling, 1 / max(0.001, exposure + 0.03))
         if requestFPS < ceiling { reason = "曝光時間限制" }
@@ -30,6 +36,7 @@ struct BurstProfile {
         else if photoPixels > 24_000_000 { reason = "高解析度保留畫質" }
         else if settings.requiresExactExposure { reason = "精確手動曝光" }
         else if !responsive { reason = "裝置拍攝能力限制" }
+        else if settings.burstRateTrial != .standard && settings.drive != .burstLow { reason = "測試請求上限；待真機驗證" }
         else { reason = nil }
     }
 }

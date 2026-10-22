@@ -103,6 +103,11 @@ struct CameraSettings: Codable, Equatable {
     private var storedManualISOAutomatic: Bool?
     private var storedTimerCount: Int?
     private var storedLevelSize: LevelSize?
+    private var storedBurstRateTrial: BurstRateTrial?
+    var burstRateTrial: BurstRateTrial {
+        get { storedBurstRateTrial ?? .standard }
+        set { storedBurstRateTrial = newValue }
+    }
     var manualISOAutomatic: Bool {
         get { storedManualISOAutomatic ?? false }
         set { storedManualISOAutomatic = newValue }

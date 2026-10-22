@@ -9,7 +9,7 @@ final class BurstAndLevelTests: XCTestCase {
         XCTAssertFalse(cadence.admit(at: 10, ready: false))
         XCTAssertTrue(cadence.admit(at: 12, ready: true))
         XCTAssertFalse(cadence.admit(at: 12, ready: true))
-        XCTAssertGreaterThan(cadence.interval, 0.25)
+        XCTAssertEqual(cadence.interval, 0.25)
         XCTAssertEqual(cadence.blocked, 1)
     }
     func testExposureLimitsCadenceWithoutChangingExposure() {
@@ -34,8 +34,29 @@ final class BurstAndLevelTests: XCTestCase {
         XCTAssertFalse(cadence.admit(at: 0.125, ready: false))
         XCTAssertTrue(cadence.admit(at: 1, ready: true))
         XCTAssertEqual(cadence.accepted, 2)
-        XCTAssertEqual(cadence.nextDeadline, 2)
+        XCTAssertEqual(cadence.nextDeadline, 1.125)
         XCTAssertFalse(cadence.admit(at: 1.01, ready: true))
+    }
+    func testSustainedPressureSlowsAndStableAdmissionsRecoverWithoutOverspeed() {
+        var cadence = BurstCadence(fps: 12, exposure: 0.001, now: 0)
+        XCTAssertTrue(cadence.admit(at: 0, ready: true))
+        for _ in 0..<3 { XCTAssertFalse(cadence.admit(at: cadence.nextDeadline, ready: false)) }
+        let reduced = cadence.interval
+        XCTAssertGreaterThan(reduced, 1.0 / 12)
+        XCTAssertTrue(cadence.admit(at: cadence.nextDeadline, ready: true))
+        for _ in 0..<72 { XCTAssertTrue(cadence.admit(at: cadence.nextDeadline, ready: true)) }
+        XCTAssertEqual(cadence.interval, cadence.minimumInterval, accuracy: 0.000001)
+        XCTAssertFalse(cadence.admit(at: cadence.nextDeadline - 0.001, ready: true))
+    }
+    func testTrialRatesMaintainTenSecondCadenceAndExposureFloor() {
+        for fps in [4.0, 6, 8, 10, 12] {
+            var cadence = BurstCadence(fps: fps, exposure: 0.001, now: 0)
+            while cadence.nextDeadline < 10 {
+                XCTAssertTrue(cadence.admit(at: cadence.nextDeadline + 0.002, ready: true))
+            }
+            XCTAssertTrue(cadence.intervals.allSatisfy { abs($0 - 1/fps) <= 1/fps * 0.2 })
+            XCTAssertEqual(cadence.minimumInterval, 1/fps, accuracy: 0.000001)
+        }
     }
     func testFixedLandscapeGravityAndInvalidSensorData() {
         var filter = LevelFilter()

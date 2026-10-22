@@ -3,21 +3,22 @@
 原生 Swift iPhone 相機，參考 EOS R6 Mark III 的拍攝資訊與 Q／MENU 操作。
 目標裝置：iPhone 17 標準版、iOS 27。這是獨立專案，並非 Canon 官方 App。
 
-## 0.5 驗證版
+## 0.6 驗證版
 
-最新實作與未完成項目以 [0.5 檢查點](docs/IMPLEMENTATION-0.5.md) 為準。
+最新實作與未完成項目以 [0.6 檢查點](docs/IMPLEMENTATION-0.6.md) 為準。
 4:3 主畫面與 Q 提案已由使用者確認並套用：中央完整等比取景，HUD 與圓弧縮放轉盤放在左右控制區。
 連拍保留格式、解析度請求與品質策略，支援時可提高軟體請求上限；實際速度依就緒／緩衝／曝光降速，未經真機驗證，不承諾 Canon 的 40 張／秒。
 使用者已改為要求鳥眼模型直接隨 IPA 交付，並接受原創 App 程式依 AGPL-3.0 開源。
-鳥眼新候選 I-MuPPET 有官方 CC BY 4.0 權重發布，但 Core ML 轉換遇到 ROIAlign 阻擋，正以獨立 ONNX 研究流程查證替代路線。100 張獨立圖片／真機評估未完成；模型尚未封裝。
-CI 的 `R6Camera-0.5-validation-IPA-no-bird` 僅是通過測試後的驗證版，不代表完整鳥眼交付。
+鳥眼新候選 I-MuPPET 已通過完整 ONNX 轉換一致性，但模型約237MB、Mac CPU單張約1.8秒，不能當成即時追焦完成品。小型 synthet 來源條件及100張獨立圖片／真機評估未完成；模型尚未封裝，詳見 [0.6 鳥眼證據](docs/research/bird-eye-0.6.md)。
+水平儀固定基準置中；H+請求上限可選8／測試10／測試12，H對應4／6／6，保留畫質限制。MENU→設定可分享最近連拍量測JSON，未經真機驗證不保證實際張數。
+CI 的 `R6Camera-0.6-validation-IPA-no-bird` 僅是通過測試後的驗證版，不代表完整鳥眼交付。
 下方 0.3 操作與限制是上一版記錄，不取代此檢查點。
 
 ## GitHub 編成 IPA
 
 1. Push 到 `main`／`codex/r6-0.4`，或在 Actions → **Build iPhone IPA** → **Run workflow**。
 2. 工作流程下載 Apple 主體偵測模型、產生 Xcode 專案、執行測試並編譯。
-3. 全部測試成功後下載 **R6Camera-0.5-validation-IPA-no-bird** artifact，解壓取得 `.ipa`。
+3. 全部測試成功後下載 **R6Camera-0.6-validation-IPA-no-bird** artifact，解壓取得 `.ipa`。
 4. 使用相容的側載工具重新簽署後安裝；下載的 IPA 不能直接永久安裝。
    免費帳號的簽署有效期與 App 數量限制依 Apple 和側載工具規定。
 

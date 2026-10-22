@@ -35,7 +35,7 @@ struct QuickControlView: View {
     }
     private var paletteHeight: CGFloat {
         switch initial {
-        case .drive: return 156
+        case .drive: return 194
         case .whiteBalance: return 140
         case .exposure: return 130
         default: return 100

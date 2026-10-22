@@ -1,8 +1,12 @@
 import CoreML
 import CoreImage
 
+protocol BirdPosePredicting {
+    func observations(_ buffer: CVPixelBuffer, at timestamp: Double) throws -> [BirdPoseObservation]
+}
+
 /// Loads only a build-time, provenance-checked bundle. No runtime downloads/imports.
-final class BirdPoseModel {
+final class BirdPoseModel: BirdPosePredicting {
     private let model: MLModel
     private let context = CIContext(options: [.cacheIntermediates: false])
     init(bundle: Bundle = .main) throws {

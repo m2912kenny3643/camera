@@ -55,7 +55,7 @@ enum CameraControl: String, CaseIterable, Identifiable {
         case .autofocus: target.autofocus = draft.autofocus
         case .subject: target.subjects = draft.subjects
         case .eye: target.eyes = draft.eyes
-        case .drive: target.drive = draft.drive; target.timerCount = draft.timerCount
+        case .drive: target.drive = draft.drive; target.timerCount = draft.timerCount; target.burstRateTrial = draft.burstRateTrial
         case .whiteBalance, .kelvin: target.whiteBalance = draft.whiteBalance; target.kelvin = draft.kelvin
         case .style: target.style = draft.style
         case .format: target.format = draft.format

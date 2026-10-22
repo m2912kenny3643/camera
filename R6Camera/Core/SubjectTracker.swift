@@ -74,6 +74,7 @@ struct FocusConfiguration: Equatable {
 }
 
 struct TrackingResult {
+    var observedAt: Double?
     var candidates: [SubjectDetection] = []
     var selected: SubjectDetection?
     var locked = false

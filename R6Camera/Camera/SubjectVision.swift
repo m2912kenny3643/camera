@@ -19,7 +19,7 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var settings = CameraSettings()
     private var tracker = SubjectTracker()
     private var model: VNCoreMLModel?
-    private var birdModel: BirdPoseModel?
+    private var birdModel: (any BirdPosePredicting)?
     private var lastFrame: Double = 0
     private var lastAspect: CGFloat = 0
     private var lastFrameSize = CGSize(width: 4, height: 3)
@@ -88,7 +88,7 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 self.renderPreview(buffer, settings: snapshot)
             }
         }
-        guard now - lastFrame >= 0.12, inferenceSlot.wait(timeout: .now()) == .success else { return }
+        guard now - lastFrame >= 0.08, inferenceSlot.wait(timeout: .now()) == .success else { return }
         lastFrame = now
         queue.async {
             defer { self.inferenceSlot.signal() }
@@ -123,7 +123,7 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 if settings.subjects == .automatic || settings.subjects == .animals, let birdModel {
                     do {
                         let poses = try birdModel.observations(buffer, at: now)
-                        let birds = poses.map(\.detection)
+                        let birds = poses.filter { $0.timestamp == now }.map(\.detection)
                         // Replace duplicate body detections; identity remains tied to observed body geometry.
                         detections.removeAll { old in old.kind == .bird && birds.contains {
                             SubjectTracker.intersectionOverUnion(old.bounds, $0.bounds) > 0.2
@@ -139,7 +139,18 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 detections = []
             }
         }
-        let result = tracker.update(detections, at: now, settings: settings)
+        // A slow prediction must not move a lens or mutate identity using an old scene.
+        let finishedAt = CACurrentMediaTime()
+        guard FrameFreshness.isCurrent(now, now: finishedAt) else {
+            // Age the existing lock with no observations: a perpetually slow model must
+            // not leave an old blue box and lens lock alive forever.
+            var expired = tracker.update([], at: finishedAt, settings: settings)
+            expired.observedAt = finishedAt
+            publish(expired, histogram: [])
+            return
+        }
+        var result = tracker.update(detections, at: now, settings: settings)
+        result.observedAt = now
         let original = CIImage(cvPixelBuffer: buffer)
         let scale = min(1, 960 / original.extent.width)
         let image = original.transformed(by: CGAffineTransform(scaleX: scale, y: scale))

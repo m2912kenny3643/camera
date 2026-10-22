@@ -2,6 +2,30 @@ import XCTest
 @testable import R6Camera
 
 final class BirdPoseTests: XCTestCase {
+    func testStaleFutureNonfiniteAndOutOfOrderFramesNeverOverwriteNewerTracking() {
+        var freshness = FrameFreshness()
+        XCTAssertTrue(freshness.accept(1, now: 1.1))
+        XCTAssertFalse(freshness.accept(0.99, now: 1.1))
+        XCTAssertFalse(freshness.accept(1, now: 1.1))
+        XCTAssertFalse(freshness.accept(1.2, now: 1.6))
+        XCTAssertFalse(freshness.accept(2, now: 1.6))
+        XCTAssertFalse(freshness.accept(.nan, now: 1.6))
+        XCTAssertTrue(freshness.accept(1.5, now: 1.6))
+        XCTAssertEqual(freshness.lastApplied, 1.5)
+    }
+    func testExpiredInferenceAgesLockWithoutUsingOldBirdOrJumpingToAnother() {
+        var tracker = SubjectTracker()
+        let bird = SubjectDetection(kind: .bird, bounds: CGRect(x: 0.2, y: 0.2, width: 0.3, height: 0.4), confidence: 0.9)
+        let settings = CameraSettings()
+        _ = tracker.update([bird], at: 1, settings: settings)
+        tracker.select(at: CGPoint(x: 0.3, y: 0.3))
+        let held = tracker.update([], at: 1.3, settings: settings)
+        XCTAssertEqual(held.focusAction, .hold)
+        let expired = tracker.update([], at: 2, settings: settings)
+        XCTAssertFalse(expired.locked)
+        XCTAssertNil(expired.selected)
+        XCTAssertEqual(expired.focusAction, .scene)
+    }
     func testActualPointsHeadAndBodyFallbackWithoutInventedEyes() {
         let body = CGRect(x: 0.1, y: 0.1, width: 0.7, height: 0.8)
         let head: [BirdPoseObservation.Landmark: BirdPoseObservation.Point] = [

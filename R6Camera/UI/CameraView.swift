@@ -100,7 +100,9 @@ struct CameraView: View {
                     TrackingOverlay(result: camera.tracking, eyes: camera.settings.effective.eyes, aspect: camera.frameAspect).allowsHitTesting(false)
                 }
                 if infoPage == 1, let reading = camera.isUIFixture ? LevelReading(roll: 0, pitch: 0) : level.reading {
+                    let image = ViewfinderGeometry.imageRect(imageAspect: camera.frameAspect, in: g.size)
                     ElectronicLevelView(reading: reading, size: camera.settings.levelSize)
+                        .position(x: image.midX, y: image.midY)
                 }
                 TimelineView(.animation(paused: !feedback.isActive)) { context in
                     Rectangle().strokeBorder(.white, lineWidth: 2).opacity(feedback.opacity(at: context.date.timeIntervalSinceReferenceDate))

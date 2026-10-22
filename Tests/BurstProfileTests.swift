@@ -2,6 +2,24 @@ import XCTest
 @testable import R6Camera
 
 final class BurstProfileTests: XCTestCase {
+    func testTrialLadderPreservesQualityAndConservativeFallbacks() throws {
+        var settings = CameraSettings(); settings.drive = .burstHighPlus
+        for trial in BurstRateTrial.allCases {
+            settings.burstRateTrial = trial
+            let snapshot = settings
+            XCTAssertEqual(BurstProfile(settings: settings, responsive: true, photoPixels: 12_000_000, exposure: 0.001).requestFPS, Double(trial.rawValue))
+            XCTAssertEqual(BurstProfile(settings: settings, responsive: true, photoPixels: 48_000_000, exposure: 0.001).requestFPS, 4)
+            XCTAssertEqual(settings, snapshot)
+            settings.drive = .burst
+            XCTAssertEqual(BurstProfile(settings: settings, responsive: true, photoPixels: 12_000_000, exposure: 0.001).requestFPS, trial.highFPS)
+            settings.drive = .burstHighPlus
+        }
+        let data = try JSONEncoder().encode(settings)
+        XCTAssertEqual(try JSONDecoder().decode(CameraSettings.self, from: data).burstRateTrial, .fastest)
+        var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        legacy.removeValue(forKey: "storedBurstRateTrial")
+        XCTAssertEqual(try JSONDecoder().decode(CameraSettings.self, from: JSONSerialization.data(withJSONObject: legacy)).burstRateTrial, .standard)
+    }
     func testFasterRequestsRequireCompatibleProcessedCapture() {
         var settings = CameraSettings(); settings.drive = .burstHighPlus
         let fast = BurstProfile(settings: settings, responsive: true, photoPixels: 12_000_000, exposure: 0.001)
