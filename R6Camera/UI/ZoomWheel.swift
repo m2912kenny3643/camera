@@ -62,6 +62,9 @@ struct ZoomWheel: View {
     }
     private func scheduleDismiss() {
         dismissTask?.cancel()
+        // Screenshots and accessibility snapshots can take longer than the idle delay.
+        // Only the explicitly enabled simulator fixture holds this timer; real capture stays at 2s.
+        if camera.isUIFixture && ProcessInfo.processInfo.environment["R6_UI_HOLD_ZOOM"] == "1" { return }
         dismissTask = Task { @MainActor in
             do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
             close()

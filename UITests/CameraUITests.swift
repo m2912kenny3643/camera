@@ -5,6 +5,7 @@ final class CameraUITests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchEnvironment["R6_UI_TESTING"] = "1"
+        app.launchEnvironment["R6_UI_HOLD_ZOOM"] = "1"
         XCUIDevice.shared.orientation = .portrait
         app.launch()
         let quick = app.buttons["quick.open"]
@@ -66,6 +67,7 @@ final class CameraUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["R6_UI_TESTING"] = "1"
         app.launchEnvironment["R6_UI_FEEDBACK_TEST"] = "1"
+        XCUIDevice.shared.orientation = .portrait
         app.launch()
         let trigger = app.buttons["fixture.capture"]
         XCTAssertTrue(trigger.waitForExistence(timeout: 10))

@@ -30,7 +30,8 @@ struct CameraView: View {
         .onChange(of: panel) { _, panel in camera.captureEnabled = panel == nil }
         .task(id: camera.status) {
             notice = nil
-            guard camera.isRunning, camera.status != "就緒" else { return }
+            guard camera.isRunning,
+                  !["就緒", "照片已存於 App", "已儲存到相簿"].contains(camera.status) else { return }
             notice = camera.status
             do { try await Task.sleep(nanoseconds: 4_000_000_000) } catch { return }
             notice = nil
