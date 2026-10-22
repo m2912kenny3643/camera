@@ -13,7 +13,7 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private let snapshotLock = NSLock()
     private var previewSettings = CameraSettings()
     var onFrame: ((TrackingResult, CGSize, [Float], CGImage?) -> Void)?
-    var onPreview: ((CGImage) -> Void)?
+    var onPreview: ((CGImage, CGSize) -> Void)?
     var onModelError: ((String) -> Void)?
     var onBirdStatus: ((String) -> Void)?
     private var settings = CameraSettings()
@@ -158,7 +158,7 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         let image = original.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         let rendered = PhotoRenderer.preview(image, settings: settings)
         if let preview = renderContext.createCGImage(rendered, from: image.extent), let onPreview {
-            onPreview(preview)
+            onPreview(preview, original.extent.size)
         } else { finishPreview() }
     }
     private func addHumanEyes(_ handler: VNImageRequestHandler, to detections: inout [SubjectDetection]) throws {

@@ -105,8 +105,9 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             DispatchQueue.main.async {
                 guard let self else { return }
                 guard result.configuration == FocusConfiguration(self.settings) else { return }
+                if self.styledFrame == nil { self.frameSize = size }
+                guard abs(self.frameAspect - size.width / max(1, size.height)) < 0.01 else { return }
                 self.tracking = result
-                self.frameSize = size
                 self.histogram = histogram
                 guard self.settings.effective.autofocus != .manual else { return }
                 switch result.focusAction {
@@ -118,12 +119,14 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                 }
             }
         }
-        vision.onPreview = { [weak self] image in
+        vision.onPreview = { [weak self] image, size in
             // Hold the render slot until displayed, so a busy main queue cannot accumulate frames.
             // Acknowledgement retains the bounded render slot until the main queue consumes it.
             DispatchQueue.main.async {
                 defer { self?.vision.finishPreview() }
                 guard let self, self.isRunning else { return }
+                if abs(self.frameAspect - size.width / max(1, size.height)) > 0.01 { self.tracking = TrackingResult() }
+                self.frameSize = size
                 self.styledFrame = image
             }
         }

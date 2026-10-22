@@ -58,6 +58,7 @@ jobs:
           swift test 2>&1 | tee build/core-tests.log
           python3 scripts/test_packaging.py
           python3 scripts/test_bird_release.py
+          python3 scripts/test_simulator.py
       - name: Archive unsigned iPhone app
         run: |
           set -euo pipefail

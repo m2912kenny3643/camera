@@ -2,6 +2,15 @@ name: Personal bird pose conversion research
 
 on:
   workflow_dispatch:
+    inputs:
+      candidate:
+        description: Research candidate; never bundles a model into the app
+        type: choice
+        required: true
+        default: synthet
+        options:
+          - synthet
+          - imuppet
 
 permissions:
   contents: read
@@ -19,15 +28,26 @@ jobs:
           python-version: "3.11"
       - name: Install pinned research tools
         run: |
-          python -m pip install torch==2.7.0 torchvision==0.22.0 ultralytics==8.4.67 coremltools==9.0 numpy==1.26.4 opencv-python==4.11.0.86
-      - name: Restricted checkpoint conversion and synthetic parity
+          python -m pip install torch==2.7.0 torchvision==0.22.0 coremltools==9.0 numpy==1.26.4
+      - name: Install synthet-specific tools
+        if: inputs.candidate == 'synthet'
+        run: python -m pip install ultralytics==8.4.67 opencv-python==4.11.0.86
+      - name: Restricted synthet conversion and synthetic parity
+        if: inputs.candidate == 'synthet'
         env:
           R6_BIRD_PERSONAL_RESEARCH: "1"
         run: python scripts/research_bird_export.py --convert
+      - name: Restricted I-MuPPET full RCNN feasibility
+        if: inputs.candidate == 'imuppet'
+        env:
+          R6_BIRD_PERSONAL_RESEARCH: "1"
+        run: python scripts/research_imuppet_export.py --convert
       - name: Upload descriptors and metrics only
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: bird-research-report
-          path: build/bird-research.log
+          path: |
+            build/bird-research.log
+            build/imuppet-research-report.json
           if-no-files-found: ignore
