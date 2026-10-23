@@ -42,7 +42,14 @@ final class PreviewSurface: UIView {
     override func didMoveToWindow() {
         super.didMoveToWindow()
         // Full-screen presentations may detach the preview; keep the scene's window as the anchor.
-        if let window { camera?.bindHardwareWindow(window) }
+        if let window {
+            // UIKit may attach this representable during a SwiftUI update. The controller's
+            // reset publishes UI state, so bind after that transaction has completed.
+            DispatchQueue.main.async { [weak self, weak window] in
+                guard let self, let window, self.window === window else { return }
+                self.camera?.bindHardwareWindow(window)
+            }
+        }
     }
     override func layoutSubviews() {
         super.layoutSubviews()

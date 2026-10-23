@@ -36,7 +36,7 @@ final class HardwareCaptureReceiverTests: XCTestCase {
     @MainActor func testDestructionRemovesWindowOwnedInteraction() {
         let window = UIWindow()
         var receiver: HardwareCaptureReceiver? = HardwareCaptureReceiver()
-        receiver?.bind(window); receiver?.setEnabled(true)
+        _ = receiver?.bind(window); receiver?.setEnabled(true)
         XCTAssertEqual(window.interactions.filter { $0 is AVCaptureEventInteraction }.count, 1)
         receiver = nil
         XCTAssertFalse(window.interactions.contains { $0 is AVCaptureEventInteraction })
