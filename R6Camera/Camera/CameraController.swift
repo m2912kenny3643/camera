@@ -277,6 +277,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             }
     }
     func stop() {
+        isRunning = false // Revoke the window receiver before waiting for sessionQueue.
         controlsActive = false
         cancelCapture()
         vision.reset()
@@ -402,7 +403,9 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         if previous != settings, isCalibrating {
             calibration = nil; isCalibrating = false; calibrationStatus = "設定已變更，校準中止"
         }
-        if FocusConfiguration(previous) != FocusConfiguration(settings) {
+        if previous.effective.autofocus != settings.effective.autofocus ||
+           previous.effective.subjects != settings.effective.subjects ||
+           previous.effective.focusArea != settings.effective.focusArea {
             holdTrackedFocus()
             tracking = TrackingResult(); singleFocused = false
             fixtureTracker.reset()

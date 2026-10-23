@@ -53,7 +53,8 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         previewSettings = settings
         snapshotLock.unlock()
         queue.async {
-            if FocusConfiguration(self.settings) != FocusConfiguration(settings) {
+            if self.settings.subjects != settings.subjects || self.settings.autofocus != settings.autofocus ||
+               self.settings.focusArea != settings.focusArea {
                 self.tracker.reset()
                 self.settings = settings
                 var cleared = self.tracker.result

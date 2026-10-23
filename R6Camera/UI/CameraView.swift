@@ -40,7 +40,7 @@ struct CameraView: View {
                 camera.captureEnabled = panel == nil && !coverPresented
                 camera.start(); if infoPage == 1 && panel == nil { level.start() }
             }
-            else { camera.stop(); level.stop() }
+            else { areaDrag = nil; areaDragOrigin = nil; pinchStart = nil; camera.stop(); level.stop() }
         }
         .onChange(of: infoPage) { _, page in if page == 1 { level.start() } else { level.stop() } }
         .onChange(of: panel) { _, panel in
@@ -132,7 +132,7 @@ struct CameraView: View {
                     zoomOpen = false
                     guard let normalized = ViewfinderGeometry.normalizedIfInside(point, imageAspect: camera.frameAspect, size: g.size) else { return }
                     camera.tap(at: normalized)
-                }.gesture(MagnifyGesture().onChanged { value in
+                }.simultaneousGesture(MagnifyGesture().onChanged { value in
                     areaDrag = nil; areaDragOrigin = nil
                     if pinchStart == nil { pinchStart = camera.zoom }
                     camera.setZoom((pinchStart ?? camera.zoom) * value.magnification)
