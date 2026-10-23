@@ -38,4 +38,17 @@ If physical overlay routing remains unstable, disable capture admission for the 
 
 ## Validation status
 
-Pending Xcode 27 compile, core/iOS/UI test results and installable artifact verification. Windows has no Swift/Xcode; local syntax parsing is not type checking. This section will be updated with the actual run and artifact evidence.
+Validated source: `605530db449051ed6ec3bb0984b7c10be0ab6785` on `codex/camera-control-two-stage`.
+
+- [Final Xcode 27 run 39957911219](https://github.com/m2912kenny3643/camera/actions/runs/39957911219): successful iPhone archive and simulator test execution. Xcode 27.0 / build 27A266a, iOS 27 SDK.
+- macOS core: **94 passed**. iOS: **103 passed**, including actual UIWindow/full-screen/nested-presentation receiver ownership, rebind, reenable and destruction checks. These hierarchy tests do not inject a physical hardware event.
+- UI: **5 passed**. The focus-area test verifies all eight choices, draft cancellation, sizing, commit, one-finger move, pinch without area movement, fresh drag after pinch, A+ override/restoration and the AF MENU editor. Hardware-return injection also asserts that the real window receiver is enabled before each injected event.
+- Local Windows checks: **45 Python tests passed**, Swift syntax parsing passed, and `git diff --check` passed. Windows has no Swift/Xcode; parsing is not type checking.
+- The final run has **zero** SwiftUI “Publishing changes from within view updates” warnings. Existing camera orientation deprecations and photo-preparation Sendable warnings remain; this is not a warning-free Swift 6 migration.
+- Independent Standards and Spec reviews were completed; reported selection freshness, stale publication, receiver cleanup and fallback-mode issues were corrected and rechecked.
+
+Verified package: `build/output/R6Camera-0.8.0-unsigned.ipa`, **0.8.0 (9)**, **30,042,959 bytes**. SHA-256: `1d706671cb94e7f8beb8caf05eb6e53b2439b573dba6747c7ca443ef216bee3e`. The IPA needs compatible signing before installation. The packaged SOURCE-COMMIT, version/build, pinned bird model, original model/license notices and full App license were verified against raw Git blobs from the tested source, avoiding Windows line-ending differences. This preserves the existing bird functional-test qualification limits.
+
+The downloaded artifact ZIP digests match GitHub's reported SHA-256 values. Local evidence is under `build/output/focus-areas-0.8.0/diagnostics/`, screenshots under `build/output/focus-areas-0.8.0/ui/`, and the package proof is `build/output/focus-0.8.0-verification.json`. Visually reviewed the resulting eight-area editor and flexible-zone overlays; controls fit the fixed landscape view.
+
+**Physical device verification remains false.** MENU light-press return, avoiding a system Camera launch, actual focus success and mixed-finger transitions still need the checklist above. The single-use scheduled automation was paused when execution began and will not repeat. No chat was archived.
