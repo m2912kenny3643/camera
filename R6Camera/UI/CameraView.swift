@@ -84,14 +84,14 @@ struct CameraView: View {
             switch item {
             case .menu: CameraSettingsView(camera: camera)
             case .playback: GalleryView(urls: camera.galleryURLs())
-                .overlay(alignment: .topTrailing) { HardwareReturnTestButton(camera: camera) }
+                .overlay(alignment: .top) { HardwareReturnTestButton(camera: camera) }
             }
         }
         .alert("相機提示", isPresented: Binding(get: { camera.error != nil }, set: { if !$0 { camera.error = nil } })) {
             Button("確定") { camera.error = nil }
             Button("開啟設定") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
         } message: { Text(camera.error ?? "") }
-        .overlay(alignment: .topTrailing) { HardwareReturnTestButton(camera: camera) }
+        .overlay(alignment: .top) { HardwareReturnTestButton(camera: camera) }
     }
     private var viewfinder: some View {
         GeometryReader { g in

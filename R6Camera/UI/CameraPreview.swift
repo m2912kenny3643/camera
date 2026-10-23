@@ -43,7 +43,8 @@ struct HardwareReturnTestButton: View {
         if camera.hardwareReturnFixture {
             Button("輕按測試") { camera.simulateHardwareReturn() }
                 .accessibilityIdentifier("fixture.hardwareReturn")
-                .font(.caption).padding(6).background(.black).foregroundStyle(.yellow)
+                .buttonStyle(.plain).font(.caption).padding(6).background(.black).foregroundStyle(.yellow)
+                .fixedSize()
         }
     }
 }

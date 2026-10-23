@@ -120,9 +120,9 @@ struct CameraSettingsView: View {
                     }
                 }
         }.preferredColorScheme(.dark)
-            .overlay(alignment: .topTrailing) { HardwareReturnTestButton(camera: camera) }
+            .overlay(alignment: .top) { HardwareReturnTestButton(camera: camera) }
             .fullScreenCover(isPresented: $birdTest) {
-                BirdDiagnosticsView().overlay(alignment: .topTrailing) { HardwareReturnTestButton(camera: camera) }
+                BirdDiagnosticsView().overlay(alignment: .top) { HardwareReturnTestButton(camera: camera) }
             }
             .confirmationDialog("校準會實際拍照及存檔。開啟鳥眼，返回取景後，每段按住相機鍵至少10秒；三段通過才保存。", isPresented: $calibratePrompt) {
                 Button("開始真機校準") { camera.startBurstCalibration() }

@@ -9,6 +9,8 @@ final class CameraUITests: XCTestCase {
         app.launchEnvironment["R6_UI_HARDWARE_RETURN_TEST"] = "1"
         app.launch()
         XCTAssertTrue(app.buttons["quick.open"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["fixture.hardwareReturn"].frame.intersects(app.buttons["quick.open"].frame))
+        XCTAssertEqual(app.buttons["fixture.capture"].value as? String, "0")
         var returnedShots = 0
         func lightPressAndImmediateFullPress() {
             let triggers = app.buttons.matching(identifier: "fixture.hardwareReturn").allElementsBoundByIndex
@@ -25,6 +27,7 @@ final class CameraUITests: XCTestCase {
             XCTAssertFalse(app.buttons["gallery.close"].exists)
         }
         app.buttons["quick.open"].tap()
+        XCTAssertTrue(app.buttons["quick.eye"].waitForExistence(timeout: 5))
         app.buttons["quick.eye"].tap()
         app.buttons["option.右眼優先"].tap() // The unconfirmed draft must be discarded.
         lightPressAndImmediateFullPress()

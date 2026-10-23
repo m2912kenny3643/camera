@@ -20,7 +20,7 @@ The separate H-mode burst sample contained 5 successful HEIF photos, measured 2.
 - Regression cases replay the five rejected timestamps and cover long/repeated activation, held-event ordering, 300ms expiry, covered-page rejection, transition-queued single/burst capture, release/cancellation, lifecycle reset and legacy behavior.
 - Added a simulator UI test returning from Q with an unconfirmed choice, menu editor, nested diagnostics, playback and zoom, with immediate full click queued during each return.
 - Separate standards/spec reviews passed after fixing stale authorization, window ownership and background-dismissal issues.
-- Xcode 27 archive, Swift test execution, UI test execution and IPA source/hash verification: pending the next CI run. Record the final result here before delivery.
+- First CI source `8dc6d7ea034be8b8a6a6152a2d448800ec4ae784`, [run 39939642555](https://github.com/m2912kenny3643/camera/actions/runs/39939642555): 85 macOS tests, 91 iOS tests and device Release archive passed. The new UI test failed before exercising return because its simulator-only trigger overlapped Q; the failure hierarchy showed a mock shot count of 1 immediately after tapping Q. The trigger was moved away and a frame non-overlap assertion was added. All three existing UI tests passed. Final rerun and IPA verification are pending.
 
 ## Device retest still needed
 
