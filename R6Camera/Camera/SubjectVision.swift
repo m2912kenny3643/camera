@@ -24,6 +24,14 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         epoch &+= 1; trackingSeed = nil
         return epoch
     }
+    /// Invalidates already queued fast callbacks when a model declares loss/occlusion.
+    private func stopContinuation(expected: UInt64) -> UInt64? {
+        snapshotLock.lock(); defer { snapshotLock.unlock() }
+        guard epoch == expected else { return nil }
+        if trackingSeed != nil { epoch &+= 1 }
+        trackingSeed = nil
+        return epoch
+    }
     var onFrame: ((TrackingResult, CGSize, [Float], CGImage?) -> Void)?
     var onPreview: ((CGImage, CGSize) -> Void)?
     var onModelError: ((String) -> Void)?
@@ -106,7 +114,11 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             trackingQueue.async {
                 defer { self.trackingSlot.signal() }
                 do {
-                    if let result = try self.birdFlow.update(buffer, seed: seed, at: now, sequence: sequence), self.currentEpoch == frameEpoch {
+                    if let result = try self.birdFlow.update(buffer, seed: seed, at: now, sequence: sequence) {
+                        self.snapshotLock.lock()
+                        let valid = self.epoch == frameEpoch && self.trackingSeed?.sequence == seed.sequence
+                        self.snapshotLock.unlock()
+                        guard valid else { return }
                         self.onFrame?(result, CGSize(width: CVPixelBufferGetWidth(buffer),height: CVPixelBufferGetHeight(buffer)), [], nil)
                     }
                 } catch { self.birdFlow.reset() }
@@ -180,22 +192,28 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             // Age the existing lock with no observations: a perpetually slow model must
             // not leave an old blue box and lens lock alive forever.
             var expired = tracker.update([], at: finishedAt, settings: settings)
-            expired.observedAt = finishedAt
             expired.frameSequence = sequence
-            snapshotLock.lock(); trackingSeed = nil; snapshotLock.unlock()
-            publish(expired, histogram: [], epoch: epoch)
+            guard let generation = stopContinuation(expected: epoch) else { return }
+            expired.observedAt = CACurrentMediaTime() // Control transition after invalidation, not a new eye measurement.
+            publish(expired, histogram: [], epoch: generation)
             return
         }
         var result = tracker.update(detections, at: now, settings: settings)
         result.observedAt = now
         result.frameSequence = sequence
-        result.epoch = epoch
+        var publicationEpoch = epoch
+        if !result.locked || result.missing {
+            guard let generation = stopContinuation(expected: epoch) else { return }
+            publicationEpoch = generation
+            if result.missing || result.lost { result.observedAt = CACurrentMediaTime() }
+        }
+        result.epoch = publicationEpoch
         result.configuration = FocusConfiguration(settings)
         snapshotLock.lock()
-        if self.epoch == epoch {
-            if !result.locked { trackingSeed = nil }
+        if self.epoch == publicationEpoch {
+            if !result.locked || result.missing { trackingSeed = nil }
             else if !result.missing, result.selected?.kind == .bird {
-                trackingSeed = BirdFrameTracker.Seed(result: result, buffer: buffer, time: now, epoch: epoch, sequence: sequence, settings: settings)
+                trackingSeed = BirdFrameTracker.Seed(result: result, buffer: buffer, time: now, epoch: publicationEpoch, sequence: sequence, settings: settings)
             }
         }
         snapshotLock.unlock()
@@ -203,7 +221,7 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         let scale = min(1, 960 / original.extent.width)
         let image = original.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         let histogram = settings.histogram ? luminanceHistogram(image) : []
-        publish(result, histogram: histogram, epoch: epoch)
+        publish(result, histogram: histogram, epoch: publicationEpoch)
     }
     private func publish(_ result: TrackingResult, histogram: [Float], epoch: UInt64? = nil) {
         var snapshot = result

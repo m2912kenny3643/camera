@@ -148,6 +148,10 @@ struct SubjectTracker {
                 }
             } else {
                 result.missing = true
+                if previous.kind == .bird, now-lastSeen > FrameFreshness.maximumAge {
+                    result.selected?.leftEye = nil; result.selected?.rightEye = nil
+                    result.selected?.headBounds = nil
+                }
                 if result.locked { result.focusAction = .hold }
                 if now - lastSeen <= settings.trackingStickiness && result.locked { return result }
                 if result.locked {

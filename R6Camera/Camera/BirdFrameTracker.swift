@@ -19,7 +19,7 @@ final class BirdFrameTracker {
     private var lastBody: CGRect?
     func reset() { handler = VNSequenceRequestHandler(); body = nil; head = nil; eye = nil; seededSequence = nil; lastBody = nil }
     func update(_ buffer: CVPixelBuffer, seed: Seed, at now: Double, sequence: UInt64) throws -> TrackingResult? {
-        guard sequence > seed.sequence, now >= seed.time, now-seed.time <= seed.settings.trackingStickiness,
+        guard !seed.result.missing, seed.result.locked, sequence > seed.sequence, now >= seed.time, now-seed.time <= seed.settings.trackingStickiness,
               let selected = seed.result.selected, selected.kind == .bird else { reset(); return nil }
         func request(_ bounds: CGRect) -> VNTrackObjectRequest {
             let r = VNTrackObjectRequest(detectedObjectObservation: VNDetectedObjectObservation(boundingBox: bounds.fromVision))

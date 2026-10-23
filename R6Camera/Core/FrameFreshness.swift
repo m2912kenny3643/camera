@@ -13,3 +13,20 @@ struct FrameFreshness {
         return true
     }
 }
+
+/// Main-thread admission, including callbacks queued before an occlusion invalidation.
+struct VisionFrameGate {
+    private var epoch: UInt64?
+    private var sequence: UInt64?
+    private var freshness = FrameFreshness()
+    mutating func accept(_ result: TrackingResult, currentEpoch: UInt64, now: Double) -> Bool {
+        if let candidate = result.epoch {
+            guard candidate == currentEpoch else { return false }
+            if epoch != candidate { epoch = candidate; sequence = nil }
+            if let next = result.frameSequence, let sequence, next <= sequence { return false }
+        }
+        if let time = result.observedAt, !freshness.accept(time, now: now) { return false }
+        if result.epoch != nil, let next = result.frameSequence { sequence = next }
+        return true
+    }
+}

@@ -58,6 +58,14 @@ final class BirdONNXTests: XCTestCase {
         XCTAssertEqual(eye.x, 0.4927, accuracy: 0.05)
         XCTAssertEqual(eye.y, 0.2631, accuracy: 0.05)
     }
+    func testFastTrackerDoesNotOverrideMissingTargetFocusHold() throws {
+        let buffer = try fixture("eagle", ext: "png")
+        let pose = try XCTUnwrap(BirdONNXModel().observations(buffer, at: 1).first)
+        var result = TrackingResult(); result.selected = pose.detection
+        result.locked = true; result.missing = true; result.focusAction = .hold
+        let seed = BirdFrameTracker.Seed(result: result, buffer: buffer, time: 1, epoch: 1, sequence: 1, settings: CameraSettings())
+        XCTAssertNil(try BirdFrameTracker().update(buffer, seed: seed, at: 1.1, sequence: 2))
+    }
     func testNativeBGRAProducesRGBNCHWAnd114LetterboxWithoutRowStrideAssumption() throws {
         var buffer: CVPixelBuffer?
         XCTAssertEqual(CVPixelBufferCreate(kCFAllocatorDefault, 320, 160, kCVPixelFormatType_32BGRA,

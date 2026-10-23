@@ -32,9 +32,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     @Published private(set) var calibrationStatus = "未校準：使用保守連拍上限"
     @Published private(set) var burstStableTarget: Double?
     @Published private(set) var isCalibrating = false
-    private var frameFreshness = FrameFreshness() // main queue; reject delayed/out-of-order inference callbacks.
-    private var lastVisionEpoch: UInt64?
-    private var lastVisionSequence: UInt64?
+    private var frameGate = VisionFrameGate()
     private var zoomCommand = 0 // main queue; latest command reconciles hardware clamping.
     private var configured = false
     private var referenceZoom: CGFloat = 1
@@ -118,17 +116,8 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         vision.onFrame = { [weak self] result, size, histogram, styled in
             DispatchQueue.main.async {
                 guard let self else { return }
-                if let epoch = result.epoch {
-                    guard epoch == self.vision.currentEpoch else { return }
-                    if self.lastVisionEpoch != epoch { self.lastVisionSequence = nil; self.lastVisionEpoch = epoch }
-                    if let sequence = result.frameSequence {
-                        guard self.lastVisionSequence.map({ sequence > $0 }) ?? true else { return }
-                        self.lastVisionSequence = sequence
-                    }
-                }
-                guard result.configuration == FocusConfiguration(self.settings) else { return }
-                if let timestamp = result.observedAt,
-                   !self.frameFreshness.accept(timestamp, now: CACurrentMediaTime()) { return }
+                guard result.configuration == FocusConfiguration(self.settings),
+                      self.frameGate.accept(result, currentEpoch: self.vision.currentEpoch, now: CACurrentMediaTime()) else { return }
                 if self.styledFrame == nil { self.frameSize = size }
                 guard abs(self.frameAspect - size.width / max(1, size.height)) < 0.01 else { return }
                 self.tracking = result

@@ -52,6 +52,30 @@ final class BirdPoseTests: XCTestCase {
         XCTAssertNil(expired.selected)
         XCTAssertEqual(expired.focusAction, .scene)
     }
+    func testQueuedFastFrameCannotOverrideOcclusionHoldFromNewGeneration() {
+        var gate = VisionFrameGate()
+        var fast = TrackingResult(); fast.epoch = 1; fast.frameSequence = 12; fast.observedAt = 1.2
+        fast.focusAction = .continuous(CGPoint(x: 0.5,y: 0.5))
+        XCTAssertTrue(gate.accept(fast, currentEpoch: 1, now: 1.22))
+        var hold = TrackingResult(); hold.epoch = 2; hold.frameSequence = 10; hold.observedAt = 1.23; hold.focusAction = .hold
+        XCTAssertTrue(gate.accept(hold, currentEpoch: 2, now: 1.24))
+        fast.frameSequence = 13; fast.observedAt = 1.25
+        XCTAssertFalse(gate.accept(fast, currentEpoch: 2, now: 1.26))
+        var stale = hold; stale.frameSequence = 14; stale.observedAt = 1.1
+        XCTAssertFalse(gate.accept(stale, currentEpoch: 2, now: 1.26))
+    }
+    func testOccludedBirdEyeAgeDoesNotRenewDuringGracePeriod() {
+        let body = CGRect(x: 0.2,y: 0.2,width: 0.4,height: 0.6)
+        let bird = SubjectDetection(kind: .bird, bounds: body, confidence: 0.9, leftEye: CGPoint(x: 0.3,y: 0.3), headBounds: CGRect(x: 0.25,y: 0.25,width: 0.1,height: 0.1))
+        var tracker = SubjectTracker()
+        _ = tracker.update([bird], at: 1, settings: CameraSettings())
+        tracker.select(at: CGPoint(x: 0.3,y: 0.3))
+        XCTAssertNotNil(tracker.update([], at: 1.2, settings: CameraSettings()).selected?.eye(.automatic))
+        let held = tracker.update([], at: 1.3, settings: CameraSettings())
+        XCTAssertTrue(held.locked); XCTAssertTrue(held.missing); XCTAssertEqual(held.focusAction, .hold)
+        XCTAssertNil(held.selected?.eye(.automatic)); XCTAssertNil(held.selected?.headBounds)
+        XCTAssertEqual(held.selected?.focusBounds(.automatic), body)
+    }
     func testActualPointsHeadAndBodyFallbackWithoutInventedEyes() {
         let body = CGRect(x: 0.1, y: 0.1, width: 0.7, height: 0.8)
         let head: [BirdPoseObservation.Landmark: BirdPoseObservation.Point] = [
