@@ -96,24 +96,25 @@ struct CameraView: View {
         } message: { Text(camera.error ?? "") }
         .overlay(alignment: .top) { HardwareReturnTestButton(camera: camera) }
     }
-    private func areaDragGesture(in size: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 8).onChanged { value in
-            guard camera.settings.program != .auto, camera.settings.effective.autofocus != .manual,
-                  camera.settings.effective.focusArea.mode != .whole else { return }
-            let image = ViewfinderGeometry.imageRect(imageAspect: camera.frameAspect, in: size)
-            if areaDragOrigin == nil {
-                guard let start = ViewfinderGeometry.normalizedIfInside(value.startLocation, imageAspect: camera.frameAspect, size: size),
-                      camera.settings.effective.focusArea.bounds.contains(start) else { return }
-                areaDrag = camera.settings.effective.focusArea
-                areaDragOrigin = areaDrag?.center
-            }
-            guard let origin = areaDragOrigin else { return }
-            areaDrag?.move(to: CGPoint(x: origin.x + value.translation.width / image.width,
-                                      y: origin.y + value.translation.height / image.height))
-        }.onEnded { _ in
+    private func moveArea(state: UIGestureRecognizer.State, start: CGPoint, delta: CGSize, size: CGSize) {
+        if state == .cancelled || state == .failed { areaDrag = nil; areaDragOrigin = nil; return }
+        if state == .ended {
             if let areaDrag { camera.moveFocusArea(to: areaDrag.center) }
             areaDrag = nil; areaDragOrigin = nil
+            return
         }
+        guard state == .began || state == .changed, pinchStart == nil,
+              camera.settings.program != .auto, camera.settings.effective.autofocus != .manual,
+              camera.settings.effective.focusArea.mode != .whole else { return }
+        let image = ViewfinderGeometry.imageRect(imageAspect: camera.frameAspect, in: size)
+        if areaDragOrigin == nil {
+            guard let point = ViewfinderGeometry.normalizedIfInside(start, imageAspect: camera.frameAspect, size: size),
+                  camera.settings.effective.focusArea.bounds.contains(point) else { return }
+            areaDrag = camera.settings.effective.focusArea
+            areaDragOrigin = areaDrag?.center
+        }
+        guard let origin = areaDragOrigin else { return }
+        areaDrag?.move(to: CGPoint(x: origin.x + delta.width / image.width, y: origin.y + delta.height / image.height))
     }
     private var viewfinder: some View {
         GeometryReader { g in
@@ -128,15 +129,20 @@ struct CameraView: View {
                 if let fixture = camera.uiFixture {
                     Image(uiImage: fixture).resizable().scaledToFit().frame(width: g.size.width, height: g.size.height).allowsHitTesting(false)
                 }
-                Color.clear.contentShape(Rectangle()).onTapGesture { point in
+                ViewfinderInputSurface(tap: { point in
                     zoomOpen = false
                     guard let normalized = ViewfinderGeometry.normalizedIfInside(point, imageAspect: camera.frameAspect, size: g.size) else { return }
                     camera.tap(at: normalized)
-                }.simultaneousGesture(MagnifyGesture().onChanged { value in
-                    areaDrag = nil; areaDragOrigin = nil
-                    if pinchStart == nil { pinchStart = camera.zoom }
-                    camera.setZoom((pinchStart ?? camera.zoom) * value.magnification)
-                }.onEnded { _ in pinchStart = nil }.exclusively(before: areaDragGesture(in: g.size)))
+                }, pan: { state, start, delta in
+                    moveArea(state: state, start: start, delta: delta, size: g.size)
+                }, pinch: { state, scale in
+                    if state == .began || state == .changed || state == .ended {
+                        areaDrag = nil; areaDragOrigin = nil
+                        if pinchStart == nil { pinchStart = camera.zoom }
+                        camera.setZoom((pinchStart ?? camera.zoom) * scale)
+                    }
+                    if state == .ended || state == .cancelled || state == .failed { pinchStart = nil }
+                }).frame(width: g.size.width, height: g.size.height)
                 if camera.settings.grid && info {
                     let image = ViewfinderGeometry.imageRect(imageAspect: camera.frameAspect, in: g.size)
                     GridLines().stroke(.white.opacity(0.3), lineWidth: 0.5)

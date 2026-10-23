@@ -33,6 +33,9 @@ final class CameraUITests: XCTestCase {
         photo.pinch(withScale: 1.4, velocity: 1)
         XCTAssertNotEqual(app.buttons["zoom.open"].label, oldZoom)
         XCTAssertEqual(frame.value as? String, movedArea, "Two-finger zoom must not move the focus region")
+        photo.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.5)).press(forDuration: 0.15,
+            thenDragTo: photo.coordinate(withNormalizedOffset: CGVector(dx: 0.6, dy: 0.5)))
+        XCTAssertNotEqual(frame.value as? String, movedArea, "One-finger movement must still work after pinch")
         app.buttons["hud.mode"].tap(); app.buttons["option.A+"].tap(); app.buttons["editor.confirm"].tap()
         XCTAssertEqual(area.value as? String, "全區域自動對焦")
         app.buttons["hud.mode"].tap(); app.buttons["option.M"].tap(); app.buttons["editor.confirm"].tap()
