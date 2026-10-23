@@ -30,4 +30,12 @@ Do not label the physical regression fixed until the new build receives real eve
 
 ## Build evidence
 
-Pending final Xcode 27 validation and IPA/source verification. Physical-device verification remains pending.
+- Validated source: `0019ba1b4c7ac8f9b04dacb5455a5b5054e40034`, version **0.8.1 (10)**.
+- [Xcode 27 run 39968767854](https://github.com/m2912kenny3643/camera/actions/runs/39968767854): iPhone archive succeeded; **94 core + 104 iOS unit + 5 UI tests passed**. Local checks: 45 Python tests, Swift syntax parsing and diff whitespace checks passed. No publish-during-view-update warning appeared in the final job log.
+- IPA: `build/output/R6Camera-0.8.1-unsigned.ipa`, **30,049,175 bytes**, SHA-256 `2d91f9f459f431aefe329f8f89009d354474c55d139c6f705ed1807e1990db17`. Embedded version, build, source commit, app license, pinned model and notices verified. Downloaded ZIP hashes matched GitHub artifact digests. Local diagnostics: `build/output/shutter-routing-0.8.1/diagnostics`.
+- Earlier run 39962586729 failed the first Q return injection at its eight-second photo-feedback wait. Its recording retained the editor; there was no state attachment to establish whether injection or return processing failed. Added simulator-only state attachments, retaining real SDK event count semantics. Both subsequent runs passed the hardware return test. Run 39965619644 then exceeded the overall 12-minute compile/test step during the remaining UI test; increased that step to 18 minutes, and the final complete run passed. The original intermittent failure has not been proven impossible; retain it as a retest risk.
+- Physical-device verification remains **pending**. UI injections and content installation do not prove real hardware event reception or prevent Apple's Camera from launching.
+
+## Waiting policy
+
+At the user's request, GitHub build waiting uses a local process polling completion every 120 seconds, with no repeated full job/log output. Read failure evidence only when needed; after success fetch logs once and verify the artifacts. Waiting itself requires no repeated source analysis or progress narration.
