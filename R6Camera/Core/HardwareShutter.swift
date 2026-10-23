@@ -85,6 +85,7 @@ struct HardwareShutterRecord: Codable {
     let receiverAttached: Bool
     let receiverEnabled: Bool
     let receiverHost: String
+    let receivedEvents: Int
     let sceneActive: Bool
     let sessionRunning: Bool
     let page: String

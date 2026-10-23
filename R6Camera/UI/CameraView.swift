@@ -86,7 +86,9 @@ struct CameraView: View {
         }) { item in
             switch item {
             case .menu: CameraSettingsView(camera: camera)
+                .background(HardwareCaptureHost(camera: camera, name: "menu"))
             case .playback: GalleryView(urls: camera.galleryURLs())
+                .background(HardwareCaptureHost(camera: camera, name: "playback"))
                 .overlay(alignment: .top) { HardwareReturnTestButton(camera: camera) }
             }
         }

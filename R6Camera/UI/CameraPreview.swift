@@ -7,6 +7,7 @@ struct CameraPreview: UIViewRepresentable {
     func makeUIView(context: Context) -> PreviewSurface {
         let view = PreviewSurface()
         view.camera = camera
+        view.accessibilityIdentifier = "hardware.host.preview"
         #if !targetEnvironment(simulator)
         view.previewLayer.session = camera.session
         #endif
@@ -27,7 +28,7 @@ struct HardwareReturnTestButton: View {
         if camera.hardwareReturnFixture {
             Button("輕按測試") { camera.simulateHardwareReturn() }
                 .accessibilityIdentifier("fixture.hardwareReturn")
-                .accessibilityValue(camera.hardwareReceiver.enabled ? "window-enabled" : "receiver-disabled")
+                .accessibilityValue(camera.hardwareReceiver.enabled ? "content-view-installed:\(camera.hardwareReceiver.host)" : "receiver-disabled")
                 .buttonStyle(.plain).font(.caption).padding(6).background(.black).foregroundStyle(.yellow)
                 .fixedSize()
         }
@@ -41,14 +42,11 @@ final class PreviewSurface: UIView {
     var rotationAngle: CGFloat = 0
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        // Full-screen presentations may detach the preview; keep the scene's window as the anchor.
-        if let window {
-            // UIKit may attach this representable during a SwiftUI update. The controller's
-            // reset publishes UI state, so bind after that transaction has completed.
-            DispatchQueue.main.async { [weak self, weak window] in
-                guard let self, let window, self.window === window else { return }
-                self.camera?.bindHardwareWindow(window)
-            }
+        // Preserve the known content-view registration used before the UIWindow regression.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if self.window != nil { self.camera?.bindHardwareView(self) }
+            else { self.camera?.unbindHardwareView(self) }
         }
     }
     override func layoutSubviews() {

@@ -1,5 +1,7 @@
 # 0.8.0 — two-stage shutter routing and focus areas
 
+**Later physical report:** the UIWindow route failed on the user’s phone with both shutter settings. Its installation tests did not prove event delivery. That strategy is withdrawn in [0.8.1](shutter-routing-0.8.1.md); the focus-area work remains.
+
 ## Approved behavior and implementation
 
 - Two-stage hardware shutter defaults on for new/missing/reset settings. Explicit saved false remains false, including C1–C3. Unsupported controls fall back to the shared hardware shutter on the capture page.

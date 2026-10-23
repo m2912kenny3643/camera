@@ -69,6 +69,10 @@ struct CameraSettingsView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             Text("輕按返回拍攝頁面並對焦。浮層啟用期間可重複全按；關閉後保留 300ms。這是浮層代理，不能辨別真實半按或按鍵來源，期間音量減仍可能拍攝。音量加不拍；A+ 固定自動對焦模式。").font(.system(size: 11)).foregroundStyle(.gray)
                                 .frame(maxWidth: .infinity, alignment: .leading)
+                            Text("接收宿主：\(camera.hardwareReceiver.host) · 安裝\(camera.hardwareReceiver.enabled ? "啟用" : "停用") · 原始事件 \(camera.hardwareReceiver.receivedEvents)")
+                                .font(.system(size: 10)).foregroundStyle(.gray)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .accessibilityIdentifier("hardwareShutter.receiverStatus")
                             ShareLink(item: camera.hardwareShutterReport) {
                                 Label("分享硬體快門事件 JSON", systemImage: "square.and.arrow.up")
                             }.font(.system(size: 13)).padding(.vertical, 6).accessibilityIdentifier("hardwareShutter.shareReport")
@@ -122,7 +126,7 @@ struct CameraSettingsView: View {
         }.preferredColorScheme(.dark)
             .overlay(alignment: .top) { HardwareReturnTestButton(camera: camera) }
             .fullScreenCover(isPresented: $birdTest) {
-                BirdDiagnosticsView().overlay(alignment: .top) { HardwareReturnTestButton(camera: camera) }
+                BirdDiagnosticsView().background(HardwareCaptureHost(camera: camera, name: "bird-diagnostics")).overlay(alignment: .top) { HardwareReturnTestButton(camera: camera) }
             }
             .confirmationDialog("校準會實際拍照及存檔。開啟鳥眼，返回取景後，每段按住相機鍵至少10秒；三段通過才保存。", isPresented: $calibratePrompt) {
                 Button("開始真機校準") { camera.startBurstCalibration() }

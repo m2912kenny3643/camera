@@ -50,7 +50,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     private var focusModeControl: AVCaptureIndexPicker? // sessionQueue only.
     private var hardwareShutter = HardwareShutter() // main queue only.
     private var hardwareResetTime = 0.0
-    private var hardwareRecords: [HardwareShutterRecord] = []
+    @Published private var hardwareRecords: [HardwareShutterRecord] = []
     private var hardwareFocusAfterReturn = false
     @Published private(set) var capturePageReturnRequest: UInt64 = 0
     @Published private(set) var hardwareReturningToCapture = false
@@ -66,10 +66,20 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         }
     }
     private var twoStageAvailable: Bool { settings.experimentalHardwareShutter && hardwareControlsSupported }
-    func bindHardwareWindow(_ window: UIWindow) {
+    func bindHardwareView(_ view: UIView) {
+        guard let window = view.window else { return }
         presentationWindow = window
-        if hardwareReceiver.bind(window) { resetHardwareShutter(reason: "receiver-window-changed") }
+        let changedWindow = hardwareReceiver.bind(view)
+        if changedWindow { resetHardwareShutter(reason: "receiver-scene-changed") }
         syncHardwareReceiver()
+        recordHardware(.reset, time: CACurrentMediaTime(), available: hardwareReceiver.enabled,
+            decision: HardwareShutter.Decision(actions: [], reason: "receiver-content-host-installed-not-hardware-proof"), eventName: "receiverHostBound")
+    }
+    func unbindHardwareView(_ view: UIView) {
+        hardwareReceiver.unbind(view)
+        syncHardwareReceiver()
+        recordHardware(.reset, time: CACurrentMediaTime(), available: hardwareReceiver.enabled,
+            decision: HardwareShutter.Decision(actions: [], reason: "receiver-content-host-removed-not-hardware-proof"), eventName: "receiverHostRemoved")
     }
     private func syncHardwareReceiver() {
         hardwareReceiver.setEnabled(sceneIsActive && isRunning && (captureEnabled || twoStageAvailable))
@@ -1107,13 +1117,13 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         hardwareReturningToCapture = false
     }
     private func recordHardware(_ input: HardwareShutter.Input, time: Double, available: Bool,
-                                decision: HardwareShutter.Decision) {
+                                decision: HardwareShutter.Decision, eventName: String? = nil) {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
-        hardwareRecords.append(HardwareShutterRecord(appVersion: "\(version) (\(build))", time: time, event: input.rawValue, source: "unknown",
+        hardwareRecords.append(HardwareShutterRecord(appVersion: "\(version) (\(build))", time: time, event: eventName ?? input.rawValue, source: "unknown",
             experimental: settings.experimentalHardwareShutter, available: available,
             receiverAttached: hardwareReceiver.attached, receiverEnabled: hardwareReceiver.enabled,
-            receiverHost: hardwareReceiver.host, sceneActive: sceneIsActive, sessionRunning: isRunning,
+            receiverHost: hardwareReceiver.host, receivedEvents: hardwareReceiver.receivedEvents, sceneActive: sceneIsActive, sessionRunning: isRunning,
             page: hardwareReturningToCapture ? "returning" : captureEnabled ? "capture" : "covered",
             captureAllowed: captureEnabled && !hardwareReturningToCapture,
             captureTaskBusy: captureTask != nil, returningToCapture: hardwareReturningToCapture,

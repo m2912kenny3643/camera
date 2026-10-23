@@ -57,10 +57,11 @@ final class CameraUITests: XCTestCase {
         XCTAssertFalse(app.buttons["fixture.hardwareReturn"].frame.intersects(app.buttons["quick.open"].frame))
         XCTAssertEqual(app.buttons["fixture.capture"].value as? String, "0")
         var returnedShots = 0
-        func lightPressAndImmediateFullPress() {
+        func lightPressAndImmediateFullPress(host: String = "preview") {
             let triggers = app.buttons.matching(identifier: "fixture.hardwareReturn").allElementsBoundByIndex
             guard let trigger = triggers.first(where: { $0.isHittable }) else { XCTFail("Missing visible hardware injection"); return }
-            XCTAssertEqual(trigger.value as? String, "window-enabled", "Actual window receiver must remain attached and enabled before injection")
+            let installed = NSPredicate(format: "value BEGINSWITH %@", "content-view-installed:hardware.host.\(host):")
+            expectation(for: installed, evaluatedWith: trigger); waitForExpectations(timeout: 5)
             trigger.tap()
             returnedShots += 1
             let feedback = app.buttons["fixture.capture"]
@@ -82,15 +83,15 @@ final class CameraUITests: XCTestCase {
         lightPressAndImmediateFullPress()
         app.buttons["MENU"].tap(); app.buttons["menu.tab.1"].tap()
         app.buttons["menu.眼睛偵測"].tap()
-        lightPressAndImmediateFullPress()
+        lightPressAndImmediateFullPress(host: "menu")
         app.buttons["MENU"].tap(); app.buttons["menu.tab.1"].tap()
         app.buttons["bird.test.open"].tap()
         XCTAssertTrue(app.buttons["bird.test.close"].waitForExistence(timeout: 5))
-        lightPressAndImmediateFullPress()
+        lightPressAndImmediateFullPress(host: "bird-diagnostics")
         XCTAssertFalse(app.buttons["bird.test.close"].exists)
         app.buttons["gallery.open"].tap()
         XCTAssertTrue(app.buttons["gallery.close"].waitForExistence(timeout: 5))
-        lightPressAndImmediateFullPress()
+        lightPressAndImmediateFullPress(host: "playback")
         app.buttons["zoom.open"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["zoom.wheel"].waitForExistence(timeout: 5))
         lightPressAndImmediateFullPress()
