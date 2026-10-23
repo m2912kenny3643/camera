@@ -6,10 +6,14 @@ struct CameraControlEditor: View {
     let control: CameraControl
     let close: () -> Void
     let palette: Bool
-    @State private var draft: CameraSettings
+    @StateObject private var session: CameraEditSession
+    private var draft: CameraSettings {
+        get { session.draft }
+        nonmutating set { session.draft = newValue }
+    }
     init(camera: CameraController, control: CameraControl, palette: Bool = false, close: @escaping () -> Void) {
         self.camera = camera; self.control = control; self.palette = palette; self.close = close
-        _draft = State(initialValue: camera.settings)
+        _session = StateObject(wrappedValue: CameraEditSession(control: control, settings: camera.settings))
     }
     private var accent: Color { palette ? .yellow : control.isAF ? Color(red: 0.92, green: 0.1, blue: 0.58) : .red }
     private var horizontal: Bool { palette || [.autofocus, .mode, .shutter, .iso, .drive, .level].contains(control) }
@@ -19,19 +23,19 @@ struct CameraControlEditor: View {
             if !palette {
                 HStack {
                     Text(control.rawValue).font(.system(size: 19, weight: .semibold)); Spacer()
-                    Button(action: close) { Image(systemName: "arrow.uturn.backward").frame(width: 44, height: 34) }.accessibilityIdentifier("editor.back")
+                    Button(action: cancelAndClose) { Image(systemName: "arrow.uturn.backward").frame(width: 44, height: 34) }.accessibilityIdentifier("editor.back")
                 }.padding(.horizontal, 20).frame(height: 43)
                 Rectangle().fill(accent).frame(height: 2)
             }
             HStack {
                 Text(editable ? selectionTitle : "目前模式自動控制此項目"); Spacer()
                 if palette {
-                    Button(action: close) { Image(systemName: "arrow.uturn.backward").frame(width: 36, height: 28) }.accessibilityIdentifier("editor.back")
+                    Button(action: cancelAndClose) { Image(systemName: "arrow.uturn.backward").frame(width: 36, height: 28) }.accessibilityIdentifier("editor.back")
                     confirmation
                 }
             }.font(.system(size: 13)).padding(.horizontal, 16).frame(minHeight: 30).background(Color(white: palette ? 0.08 : 0.2).opacity(0.9))
             if editable {
-                if control == .area { FocusAreaOptions(draft: $draft, accent: accent) }
+                if control == .area { FocusAreaOptions(draft: $session.draft, accent: accent) }
                 else if let range = numericRange {
                     VStack(spacing: 8) {
                         Text(control.value(draft)).font(.system(size: 22, weight: .medium, design: .monospaced))
@@ -52,10 +56,10 @@ struct CameraControlEditor: View {
                     }.frame(maxHeight: palette ? 64 : horizontal ? 80 : .infinity).accessibilityIdentifier("editor.options")
                 }
                 if control == .whiteBalance && draft.whiteBalance == .custom {
-                    HStack { Text("\(Int(draft.kelvin)) K").monospacedDigit(); Slider(value: $draft.kelvin, in: 2500...10000, step: 100).tint(.yellow) }.font(.system(size: 13)).padding(.horizontal, 20)
+                    HStack { Text("\(Int(draft.kelvin)) K").monospacedDigit(); Slider(value: $session.draft.kelvin, in: 2500...10000, step: 100).tint(.yellow) }.font(.system(size: 13)).padding(.horizontal, 20)
                 }
                 if control == .drive && draft.drive == .timerContinuous {
-                    Stepper("連拍張數  \(draft.timerCount)", value: $draft.timerCount, in: 2...10).font(.system(size: 13)).padding(.horizontal, 20).accessibilityIdentifier("drive.timerCount").accessibilityValue(String(draft.timerCount))
+                    Stepper("連拍張數  \(draft.timerCount)", value: $session.draft.timerCount, in: 2...10).font(.system(size: 13)).padding(.horizontal, 20).accessibilityIdentifier("drive.timerCount").accessibilityValue(String(draft.timerCount))
                 }
                 if control == .drive && [.burstHighPlus, .burst].contains(draft.drive) {
                     Text("穩定節奏優先；未校準採保守上限。MENU → 設定 → 連拍穩定速度校準")
@@ -71,11 +75,13 @@ struct CameraControlEditor: View {
                     .padding(.horizontal, 20).padding(.vertical, 6)
             } else if control == .drive { Text(detail).font(.system(size: 10)).foregroundStyle(.gray).padding(.bottom, 4) }
         }.foregroundStyle(.white).background(Color.black.opacity(palette ? 0.6 : 1)).buttonStyle(.plain)
+            .onAppear { camera.editorSessions.register(session) }
+            .onDisappear { camera.editorSessions.cancel(session.id) }
     }
+    private func cancelAndClose() { if camera.editorSessions.cancel(session.id) { close() } }
     private var confirmation: some View {
         Button {
-            if editable { camera.update { control.apply(draft, to: &$0) } }
-            close()
+            if camera.commitEditor(session.id) { close() }
         } label: { Text("SET  OK").font(.system(size: 13)).padding(.horizontal, 8).frame(height: 29).overlay(Rectangle().stroke(.white.opacity(0.6))) }.accessibilityIdentifier("editor.confirm")
     }
     private var selectionTitle: String {
@@ -135,7 +141,7 @@ struct CameraControlEditor: View {
         case .level: return "INFO 切換電子水平儀；感測器不可用時不顯示"
         case .area: return "軟體選取範圍與鏡頭對焦點；非 Canon 感測器對焦點陣列"
         case .meter: return "iPhone 系統測光"
-        default: return "返回取消 · SET 套用"
+        default: return "返回取消 · SET 或輕按快門套用"
         }
     }
     private func edit(_ change: (inout CameraSettings) -> Void) { change(&draft) }

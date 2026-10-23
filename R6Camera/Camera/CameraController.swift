@@ -11,7 +11,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     let photos = PhotoLibraryStore()
     private let photoOutput = AVCapturePhotoOutput()
     private let videoOutput = AVCaptureVideoDataOutput()
-    private let store = SettingsStore()
+    private let store: SettingsStore
     private let lifecycle = SessionLifecycle()
     private var startTask: Task<Void, Never>?
     private var device: AVCaptureDevice?
@@ -48,7 +48,9 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     private var trackingFocusSuspended = false
     private var lastTrackedLensPosition: Float?
     private var notificationTokens: [NSObjectProtocol] = []
-    private var focusModeControl: AVCaptureIndexPicker? // sessionQueue only.
+    private var shutterControl: AVCaptureIndexPicker? // sessionQueue only.
+    let editorSessions = CameraEditorRegistry() // main queue only.
+    private var hardwareEditEventTime: Double? // Scoped to a validated light-press commit.
     private var hardwareShutter = HardwareShutter() // main queue only.
     private var hardwareResetTime = 0.0
     @Published private var hardwareRecords: [HardwareShutterRecord] = []
@@ -153,8 +155,10 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     @Published private(set) var hardwareInjectionCount = 0 // Simulator fixture only, never SDK delivery.
     @Published var battery: Float = -1
 
-    override init() {
-        let restored = SettingsStore().load() ?? CameraSettings()
+    override convenience init() { self.init(store: SettingsStore()) }
+    init(store: SettingsStore) {
+        self.store = store
+        let restored = store.load() ?? CameraSettings()
         settings = restored
         super.init()
         settingsRecoveryMessage = store.diagnostics
@@ -308,6 +312,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         cancelCapture()
         vision.reset()
         singleFocused = false
+        tracking = TrackingResult()
         sessionQueue.async {
             self.lensStrategy = .scene
             self.trackingFocusSuspended = false
@@ -413,6 +418,14 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     }
 
     /// UI mutations are persisted once and sent as immutable snapshots to serial owners.
+    @discardableResult func commitEditor(_ id: UUID) -> Bool {
+        guard let commit = editorSessions.take(id) else { return false }
+        applyEditor(commit); return true
+    }
+    private func applyEditor(_ commit: CameraEditorRegistry.Commit) {
+        guard commit.control.isEditable(settings) else { return }
+        update { commit.control.apply(commit.draft, to: &$0) }
+    }
     func update(_ transform: (inout CameraSettings) -> Void) {
         let previous = settings
         transform(&settings)
@@ -448,7 +461,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                         self.session.beginConfiguration()
                         self.configureHardwareControls(snapshot)
                         self.session.commitConfiguration()
-                    } else { self.syncHardwareFocusControl(snapshot) }
+                    }
                 }
                 try self.applyToDevice(snapshot)
                 self.preparePhotoResources(snapshot)
@@ -604,6 +617,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         update { $0.focusArea.move(to: point) }
     }
     func unlockTracking() {
+        tracking = TrackingResult()
         if isUIFixture { fixtureTracker.unlock(); _ = fixtureTracker.update(fixtureDetections, at: 1, settings: settings); tracking = fixtureTracker.result }
         else { vision.unlock() }
         singleFocused = false
@@ -989,8 +1003,8 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     /// Called only on sessionQueue, inside a session configuration transaction.
     private func configureHardwareControls(_ requested: CameraSettings) {
         if !requested.experimentalHardwareShutter {
-            if let control = focusModeControl { session.removeControl(control) }
-            focusModeControl = nil
+            if let control = shutterControl { session.removeControl(control) }
+            shutterControl = nil
             publishHardwareControls(false, status: "實驗性兩段硬體快門未啟用")
             return
         }
@@ -999,34 +1013,18 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             return
         }
         session.setControlsDelegate(self, queue: .main)
-        if focusModeControl == nil {
-            let modes = AutofocusMode.allCases
-            let picker = AVCaptureIndexPicker("對焦模式", symbolName: "scope", localizedIndexTitles: modes.map(\.rawValue))
-            picker.setActionQueue(sessionQueue) { [weak self] index in
-                let time = CACurrentMediaTime()
-                DispatchQueue.main.async {
-                    guard let self, time >= self.hardwareResetTime, self.settings.experimentalHardwareShutter,
-                          self.isRunning, self.captureEnabled, self.settings.program != .auto,
-                          modes.indices.contains(index), self.settings.autofocus != modes[index] else { return }
-                    self.update { $0.autofocus = modes[index] }
-                }
-            }
+        if shutterControl == nil {
+            let picker = HardwareShutterControl.make(queue: sessionQueue)
             guard session.canAddControl(picker) else {
-                publishHardwareControls(false, status: "無法註冊對焦控制；取景頁使用一般硬體快門")
+                publishHardwareControls(false, status: "無法註冊快門浮層；取景頁使用一般硬體快門")
                 return
             }
             session.addControl(picker)
-            focusModeControl = picker
+            shutterControl = picker
         }
-        syncHardwareFocusControl(requested)
-        publishHardwareControls(true, status: "實驗模式：輕按返回拍攝／對焦，浮層啟用期間可連續全按；音量減仍可能拍攝")
+        publishHardwareControls(true, status: "實驗模式：輕按套用選項並返回拍攝／對焦；相機鍵滑動不調整設定，音量減仍可能拍攝")
     }
-    /// Value updates stay on the control's action queue and do not reconfigure the capture graph.
-    private func syncHardwareFocusControl(_ requested: CameraSettings) {
-        focusModeControl?.selectedIndex = AutofocusMode.allCases.firstIndex(of: requested.effective.autofocus) ?? 0
-        focusModeControl?.isEnabled = requested.program != .auto
-    }
-    private func publishHardwareControls(_ supported: Bool, status: String) {
+    func publishHardwareControls(_ supported: Bool, status: String) {
         DispatchQueue.main.async {
             self.hardwareControlsSupported = supported
             self.hardwareControlStatus = status
@@ -1046,6 +1044,16 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             recordHardware(input, time: time, available: available,
                            decision: HardwareShutter.Decision(actions: [], reason: "stale-input-before-reset"))
             return
+        }
+        if input == .controlsActive, experimental, available, !hardwareReturningToCapture,
+           let commit = editorSessions.take() {
+            // Validation happened before taking the draft. All synchronous resets in this
+            // transaction use the original event boundary, so an already-queued fast full
+            // press is not incorrectly rejected as older than the wall-clock commit time.
+            hardwareEditEventTime = time
+            applyEditor(commit)
+            resetHardwareShutter(reason: "editor-half-press-commit")
+            hardwareEditEventTime = nil
         }
         let decision = hardwareShutter.receive(input, at: time, experimental: experimental,
                                               available: available, burst: settings.drive.isBurst,
@@ -1073,9 +1081,9 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         }
     }
     private func resetHardwareShutter(preservingOverlay: Bool = false, reason: String = "capture-cancelled") {
-        let time = CACurrentMediaTime()
+        let time = hardwareEditEventTime ?? CACurrentMediaTime()
         hardwareResetTime = time
-        let resumeOverlay = preservingOverlay && controlsActive && settings.experimentalHardwareShutter
+        let resumeOverlay = hardwareEditEventTime == nil && preservingOverlay && controlsActive && settings.experimentalHardwareShutter
             && isRunning && hardwareControlsSupported && captureEnabled && !hardwareReturningToCapture
         let decision = hardwareShutter.receive(.reset, at: time, experimental: settings.experimentalHardwareShutter,
                                               available: false, burst: false)

@@ -52,7 +52,7 @@ struct CameraSettingsView: View {
                 ScrollView {
                     VStack(spacing: 2) {
                         ForEach(pages[safePage]) { control in
-                            menuRow(control.rawValue, value: control.value(camera.settings)) { selected = control.rawValue; editor = control }
+                            menuRow(control.rawValue, value: control.value(camera.settings)) { selected = control.rawValue; openEditor(control) }
                                 .accessibilityIdentifier("menu.\(control.rawValue)")
                         }
                         if tab == 1 {
@@ -73,7 +73,7 @@ struct CameraSettingsView: View {
                                 .accessibilityValue(camera.settings.experimentalHardwareShutter ? "開啟" : "關閉")
                             Text(camera.hardwareControlStatus).font(.system(size: 11)).foregroundStyle(.yellow)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                            Text("輕按返回拍攝頁面並對焦。浮層啟用期間可重複全按；關閉後保留 300ms。這是浮層代理，不能辨別真實半按或按鍵來源，期間音量減仍可能拍攝。音量加不拍；A+ 固定自動對焦模式。").font(.system(size: 11)).foregroundStyle(.gray)
+                            Text("輕按套用目前拍攝選項並返回拍攝／對焦；相機鍵滑動不調整設定。浮層啟用期間可重複全按；關閉後保留 300ms。這是浮層代理，不能辨別真實半按或按鍵來源，期間音量減仍可能拍攝。").font(.system(size: 11)).foregroundStyle(.gray)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             Text("接收宿主：\(camera.hardwareReceiver.host) · 安裝\(camera.hardwareReceiver.enabled ? "啟用" : "停用") · 原始事件 \(camera.hardwareReceiver.receivedEvents)")
                                 .font(.system(size: 10)).foregroundStyle(.gray)
@@ -92,7 +92,7 @@ struct CameraSettingsView: View {
                             }
                             toggleRow("格線", path: \.grid)
                             toggleRow("亮度直方圖", path: \.histogram)
-                            menuRow(CameraControl.level.rawValue, value: camera.settings.levelSize.rawValue) { editor = .level }.accessibilityIdentifier("menu.水平儀顯示大小")
+                            menuRow(CameraControl.level.rawValue, value: camera.settings.levelSize.rawValue) { openEditor(.level) }.accessibilityIdentifier("menu.水平儀顯示大小")
                             Text("固定橫向 · 相機鍵在上緣").font(.system(size: 11)).foregroundStyle(.gray)
                             menuRow("重設拍攝設定", value: "SET") { resetPrompt = true }
                             menuRow("iPhone 權限設定", value: "開啟") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
@@ -116,20 +116,23 @@ struct CameraSettingsView: View {
                     Button("MENU  返回") { dismiss() }.accessibilityIdentifier("menu.close")
                     Spacer()
                     Text("輕點項目設定").foregroundStyle(.gray).font(.system(size: 10))
-                    Button("SET  確認") { editor = pages[safePage].first { $0.rawValue == selected } }.font(.system(size: 12))
+                    Button("SET  確認") { if let control = pages[safePage].first(where: { $0.rawValue == selected }) { openEditor(control) } }.font(.system(size: 12))
                         .disabled(!pages[safePage].contains { $0.rawValue == selected })
                 }.font(.system(size: 12)).frame(height: 31)
             }.padding(.horizontal, max(16, g.size.width * 0.06)).padding(.vertical, 8)
                 .background(.black).foregroundStyle(.white).buttonStyle(.plain)
                 .overlay {
                     if let editor {
-                        Color.black.opacity(0.5).onTapGesture { self.editor = nil }
+                        Color.black.opacity(0.5).onTapGesture { camera.editorSessions.cancel(); self.editor = nil }
                         CameraControlEditor(camera: camera, control: editor) { self.editor = nil }.id(editor)
                             .frame(width: g.size.width - 56, height: g.size.height - 16)
                             .frame(width: g.size.width, height: g.size.height).background(.black)
                     }
                 }
         }.preferredColorScheme(.dark)
+            .onChange(of: camera.capturePageReturnRequest) { _, _ in
+                editor = nil; resetPrompt = false; recoveryPrompt = false; calibratePrompt = false; birdTest = false
+            }
             .overlay(alignment: .top) { HardwareReturnTestButton(camera: camera) }
             .fullScreenCover(isPresented: $birdTest) {
                 BirdDiagnosticsView().background(HardwareCaptureHost(camera: camera, name: "bird-diagnostics")).overlay(alignment: .top) { HardwareReturnTestButton(camera: camera) }
@@ -155,6 +158,7 @@ struct CameraSettingsView: View {
                 .overlay(Rectangle().stroke(selected == title ? colors[tab] : .clear, lineWidth: 2))
         }
     }
+    private func openEditor(_ control: CameraControl) { camera.editorSessions.cancel(); editor = control }
     private func toggleRow(_ title: String, path: WritableKeyPath<CameraSettings, Bool>) -> some View {
         menuRow(title, value: camera.settings[keyPath: path] ? "開啟" : "關閉") { camera.update { $0[keyPath: path].toggle() } }
     }

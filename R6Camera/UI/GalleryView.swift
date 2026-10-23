@@ -3,6 +3,7 @@ import ImageIO
 
 struct GalleryView: View {
     @ObservedObject var store: PhotoLibraryStore
+    let returnRequest: UInt64
     @Environment(\.dismiss) private var dismiss
     @State private var images: [URL] = []
     @State private var selection = 0
@@ -55,6 +56,7 @@ struct GalleryView: View {
             }.padding(.horizontal, 20).frame(height: 40)
         }.background(.black).foregroundStyle(.white).buttonStyle(.plain).preferredColorScheme(.dark)
             .onAppear { images = store.items.map(\.url); store.refresh() }
+            .onChange(of: returnRequest) { _, _ in deletePrompt = false; deleteTarget = nil; retryTarget = nil; error = nil }
             .onChange(of: store.items) { _, items in
                 let previous = images.indices.contains(selection) ? images[selection] : nil
                 images = items.map(\.url)

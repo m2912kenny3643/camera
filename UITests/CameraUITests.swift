@@ -81,14 +81,18 @@ final class CameraUITests: XCTestCase {
         app.buttons["quick.open"].tap()
         XCTAssertTrue(app.buttons["quick.eye"].waitForExistence(timeout: 5))
         app.buttons["quick.eye"].tap()
-        app.buttons["option.右眼優先"].tap() // The unconfirmed draft must be discarded.
+        app.buttons["option.右眼優先"].tap() // Half press now confirms the current draft.
         lightPressAndImmediateFullPress()
         app.buttons["quick.open"].tap(); app.buttons["quick.eye"].tap()
-        XCTAssertEqual(app.buttons["option.自動"].value as? String, "已選取")
+        XCTAssertEqual(app.buttons["option.右眼優先"].value as? String, "已選取")
         lightPressAndImmediateFullPress()
         app.buttons["MENU"].tap(); app.buttons["menu.tab.1"].tap()
         app.buttons["menu.眼睛偵測"].tap()
+        app.buttons["option.左眼優先"].tap()
         lightPressAndImmediateFullPress(host: "menu")
+        app.buttons["MENU"].tap(); app.buttons["menu.tab.1"].tap(); app.buttons["menu.眼睛偵測"].tap()
+        XCTAssertEqual(app.buttons["option.左眼優先"].value as? String, "已選取")
+        app.buttons["editor.back"].tap(); app.buttons["menu.close"].tap()
         app.buttons["MENU"].tap(); app.buttons["menu.tab.1"].tap()
         app.buttons["bird.test.open"].tap()
         XCTAssertTrue(app.buttons["bird.test.close"].waitForExistence(timeout: 5))
@@ -102,6 +106,35 @@ final class CameraUITests: XCTestCase {
         lightPressAndImmediateFullPress()
         XCTAssertFalse(app.descendants(matching: .any)["zoom.wheel"].exists)
         capture("Hardware-return-to-shooting-page")
+    }
+    func testHalfPressAppliesHudAndQuickAreaDraftAndShowsCenterBlueFrame() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchEnvironment["R6_UI_TESTING"] = "1"
+        app.launchEnvironment["R6_UI_FEEDBACK_TEST"] = "1"
+        app.launchEnvironment["R6_UI_HARDWARE_RETURN_TEST"] = "1"
+        app.launch()
+        let area = app.buttons["hud.area"]
+        XCTAssertTrue(area.waitForExistence(timeout: 10))
+        func halfAndFull(_ shots: Int) {
+            app.buttons["fixture.hardwareReturn"].tap()
+            expectation(for: NSPredicate(format: "value == %@", String(shots)), evaluatedWith: app.buttons["fixture.capture"])
+            waitForExpectations(timeout: 8)
+            XCTAssertFalse(app.buttons["editor.confirm"].exists)
+        }
+        area.tap(); app.buttons["option.重點自動對焦"].tap()
+        halfAndFull(1)
+        XCTAssertEqual(area.value as? String, "重點自動對焦")
+        XCTAssertTrue(app.descendants(matching: .any)["focus.commandPoint"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["focus.areaFrame"].exists)
+        capture("Half-press-center-blue-focus-frame")
+        area.tap(); app.buttons["option.全區域自動對焦"].tap(); app.buttons["editor.back"].tap()
+        XCTAssertEqual(area.value as? String, "重點自動對焦", "Back still cancels")
+        app.buttons["quick.open"].tap(); app.buttons["quick.area"].tap()
+        app.buttons["option.彈性區域自動對焦2"].tap()
+        halfAndFull(2)
+        XCTAssertEqual(area.value as? String, "彈性區域自動對焦2")
+        XCTAssertTrue(app.buttons["quick.open"].isHittable)
     }
     func testExperimentalHardwareShutterDefaultsOnAndCanBeRestored() {
         continueAfterFailure = false

@@ -27,7 +27,7 @@ struct CameraView: View {
                         viewfinder.frame(width: photo.width, height: photo.height).position(x: photo.midX, y: photo.midY)
                         if zoomOpen { ZoomWheel(camera: camera, railWidth: main.size.width - photo.maxX) { zoomOpen = false } }
                         if quick == nil { hud(unit: unit, photo: photo, size: main.size) }
-                        if let quick { QuickControlView(camera: camera, initial: quick, photo: photo, select: { self.quick = $0 }) { self.quick = nil } }
+                        if let quick { QuickControlView(camera: camera, initial: quick, photo: photo, select: { if self.quick != $0 { camera.editorSessions.cancel(); self.quick = $0 } }) { camera.editorSessions.cancel(); self.quick = nil } }
                     }.frame(width: main.size.width, height: main.size.height).clipped()
                 }
                 if quick == nil || quick?.isLivePalette == true { exposureBar.frame(height: max(36, 43 * unit)) }
@@ -44,7 +44,7 @@ struct CameraView: View {
         }
         .onChange(of: infoPage) { _, page in if page == 1 { level.start() } else { level.stop() } }
         .onChange(of: panel) { _, panel in
-            if panel != nil { coverPresented = true; camera.captureEnabled = false; camera.cancelCapture(); level.stop() }
+            if panel != nil { camera.editorSessions.cancel(); quick = nil; coverPresented = true; camera.captureEnabled = false; camera.cancelCapture(); level.stop() }
         }
         .onChange(of: camera.capturePageReturnRequest) { _, request in
             let returningFromPanel = panel != nil
@@ -87,7 +87,7 @@ struct CameraView: View {
             switch item {
             case .menu: CameraSettingsView(camera: camera)
                 .background(HardwareCaptureHost(camera: camera, name: "menu"))
-            case .playback: GalleryView(store: camera.photos)
+            case .playback: GalleryView(store: camera.photos, returnRequest: camera.capturePageReturnRequest)
                 .background(HardwareCaptureHost(camera: camera, name: "playback"))
                 .overlay(alignment: .top) { HardwareReturnTestButton(camera: camera) }
             }
@@ -154,7 +154,7 @@ struct CameraView: View {
                     if camera.settings.effective.focusArea.mode != .whole {
                         FocusAreaOverlay(area: areaDrag ?? camera.settings.effective.focusArea, aspect: camera.frameAspect)
                     }
-                    TrackingOverlay(result: camera.tracking, eyes: camera.settings.effective.eyes, aspect: camera.frameAspect).allowsHitTesting(false)
+                    TrackingOverlay(result: camera.tracking, settings: camera.settings, aspect: camera.frameAspect).allowsHitTesting(false)
                 }
                 if infoPage == 1, let reading = camera.isUIFixture ? LevelReading(roll: 0, pitch: 0) : level.reading {
                     let image = ViewfinderGeometry.imageRect(imageAspect: camera.frameAspect, in: g.size)
@@ -277,7 +277,7 @@ struct CameraView: View {
             }
         }.background(.black).buttonStyle(.plain).lineLimit(1).minimumScaleFactor(0.7)
     }
-    private func open(_ control: CameraControl) { zoomOpen = false; quick = control }
+    private func open(_ control: CameraControl) { camera.editorSessions.cancel(); zoomOpen = false; quick = control }
     private func cycleInfo() {
         if feedbackFixture { camera.simulateCaptureFeedback() }
         infoPage = (infoPage + 1) % 3
@@ -286,18 +286,21 @@ struct CameraView: View {
 
 private struct TrackingOverlay: View {
     let result: TrackingResult
-    let eyes: EyePriority
+    let settings: CameraSettings
     let aspect: CGFloat
     var body: some View {
         GeometryReader { g in
             let image = ViewfinderGeometry.imageRect(imageAspect: aspect, in: g.size)
-            if let point = result.touchPoint {
+            switch FocusIndicator.resolve(result, settings: settings) {
+            case .point(let point):
                 Rectangle().stroke(Color.blue, lineWidth: 1.5).frame(width: 36, height: 36).position(ViewfinderGeometry.display(point, imageAspect: aspect, size: g.size))
-            } else if let target = result.selected, !result.lost {
-                let rect = result.locked ? target.focusBounds(eyes) : (target.headBounds ?? target.bounds)
-                Rectangle().stroke(result.locked ? Color.blue : Color.white, lineWidth: 1.5)
+                    .accessibilityIdentifier("focus.commandPoint").accessibilityLabel("指定對焦位置，未確認合焦")
+            case .subject(let rect, let selected):
+                Rectangle().stroke(selected ? Color.blue : Color.white, lineWidth: 1.5)
                     .frame(width: max(10, rect.width * image.width), height: max(10, rect.height * image.height))
                     .position(x: image.minX + rect.midX * image.width, y: image.minY + rect.midY * image.height)
+                    .accessibilityIdentifier(selected ? "focus.selectedSubject" : "focus.candidate")
+            case nil: EmptyView()
             }
         }
     }
