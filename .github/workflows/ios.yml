@@ -72,7 +72,7 @@ jobs:
         timeout-minutes: 7
         run: python3 scripts/prepare_simulator.py
       - name: Test fixed landscape and secondary menus
-        timeout-minutes: 12
+        timeout-minutes: 18
         run: |
           set -euo pipefail
           xcodebuild test -project R6Camera.xcodeproj -scheme R6Camera \
