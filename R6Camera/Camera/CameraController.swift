@@ -8,11 +8,12 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     let session = AVCaptureSession()
     let vision = SubjectVision()
     let sessionQueue = DispatchQueue(label: "camera.session", qos: .userInitiated)
-    private let renderQueue = DispatchQueue(label: "camera.photo", qos: .userInitiated)
-    private let photoContext = CIContext() // Reuse GPU resources across the serial photo pipeline.
+    let photos = PhotoLibraryStore()
     private let photoOutput = AVCapturePhotoOutput()
     private let videoOutput = AVCaptureVideoDataOutput()
     private let store = SettingsStore()
+    private let lifecycle = SessionLifecycle()
+    private var startTask: Task<Void, Never>?
     private var device: AVCaptureDevice?
     private var input: AVCaptureDeviceInput?
     private var observations: [NSKeyValueObservation] = []
@@ -61,7 +62,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     let hardwareReceiver = HardwareCaptureReceiver()
     var sceneIsActive = true {
         didSet {
-            if !sceneIsActive { cancelCapture(reason: "scene-inactive") }
+            if !sceneIsActive { lifecycle.invalidate(); startTask?.cancel(); cancelCapture(reason: "scene-inactive") }
             syncHardwareReceiver()
         }
     }
@@ -113,6 +114,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     }
     @Published var error: String?
     @Published var status = "正在啟動相機"
+    @Published private(set) var settingsRecoveryMessage: String?
     @Published private(set) var birdStatus = "鳥眼模型尚未載入"
     @Published var tracking = TrackingResult()
     @Published private(set) var frameSize = CGSize(width: 4, height: 3)
@@ -148,12 +150,14 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     private var responsiveCapture = false
     @Published var lastPhotoURL: URL?
     @Published private(set) var captureFeedback = 0
+    @Published private(set) var hardwareInjectionCount = 0 // Simulator fixture only, never SDK delivery.
     @Published var battery: Float = -1
 
     override init() {
         let restored = SettingsStore().load() ?? CameraSettings()
         settings = restored
         super.init()
+        settingsRecoveryMessage = store.diagnostics
         hardwareReceiver.onInput = { [weak self] input, time in self?.hardwareInput(input, at: time) }
         UIDevice.current.isBatteryMonitoringEnabled = true
         vision.onFrame = { [weak self] result, size, histogram, styled in
@@ -199,6 +203,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         notificationTokens.append(NotificationCenter.default.addObserver(
             forName: AVCaptureSession.wasInterruptedNotification, object: session, queue: .main
         ) { [weak self] _ in
+            self?.lifecycle.invalidate(); self?.startTask?.cancel()
             self?.isRunning = false
             self?.status = "相機暫時中斷"
             self?.cancelCapture()
@@ -209,6 +214,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         notificationTokens.append(NotificationCenter.default.addObserver(
             forName: AVCaptureSession.runtimeErrorNotification, object: session, queue: .main
         ) { [weak self] notification in
+            self?.lifecycle.invalidate(); self?.startTask?.cancel()
             self?.isRunning = false
             self?.error = (notification.userInfo?[AVCaptureSessionErrorKey] as? Error)?.localizedDescription ?? "相機發生錯誤，請重新開啟 App。"
         })
@@ -217,6 +223,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         notificationTokens.forEach(NotificationCenter.default.removeObserver)
         exposureTimer?.cancel()
         captureTask?.cancel()
+        startTask?.cancel()
     }
 
     private var fixtureTracker = SubjectTracker()
@@ -241,8 +248,11 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     }
 
     func start() {
+        guard let token = lifecycle.begin(active: sceneIsActive) else { return }
+        startTask?.cancel()
         #if targetEnvironment(simulator)
         DispatchQueue.main.async {
+            guard self.lifecycle.permits(token), self.sceneIsActive else { return }
             self.status = "模擬器 UI 檢視 · 未啟動鏡頭"
             if self.isUIFixture {
                 self.prepareUIFixture()
@@ -250,24 +260,27 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             }
         }
         #else
-        Task { @MainActor in
+        startTask = Task { @MainActor [weak self] in
+            guard let self else { return }
             let allowed: Bool
             switch AVCaptureDevice.authorizationStatus(for: .video) {
             case .authorized: allowed = true
             case .notDetermined: allowed = await AVCaptureDevice.requestAccess(for: .video)
             default: allowed = false
             }
+            guard !Task.isCancelled, self.lifecycle.permits(token), self.sceneIsActive else { return }
             guard allowed else {
                 self.error = "需要相機權限。請在 iPhone 設定中允許 R6 Camera 使用相機。"
                 self.status = "相機權限未開啟"
                 return
             }
-            self.startSession(initial: self.settings)
+            self.startSession(initial: self.settings, token: token)
         }
         #endif
     }
-    private func startSession(initial startupSettings: CameraSettings) {
+    private func startSession(initial startupSettings: CameraSettings, token: UInt64) {
             sessionQueue.async {
+                guard self.lifecycle.permits(token) else { return }
                 do {
                     if !self.configured { try self.configureSession(initial: startupSettings) }
                     if !self.session.isRunning {
@@ -276,9 +289,11 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                         self.lastFocusPoint = CGPoint(x: -1, y: -1)
                         try self.applyToDevice(startupSettings)
                         self.preparePhotoResources(startupSettings)
+                        guard self.lifecycle.permits(token) else { return }
                         self.session.startRunning()
                     }
                     DispatchQueue.main.async {
+                        guard self.lifecycle.permits(token), self.sceneIsActive else { return }
                         self.isRunning = self.session.isRunning
                         self.status = "就緒"
                         self.battery = UIDevice.current.batteryLevel
@@ -287,6 +302,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             }
     }
     func stop() {
+        lifecycle.invalidate(); startTask?.cancel()
         isRunning = false // Revoke the window receiver before waiting for sessionQueue.
         controlsActive = false
         cancelCapture()
@@ -421,7 +437,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             fixtureTracker.reset()
             if isUIFixture { tracking = fixtureTracker.update(fixtureDetections, at: 0, settings: settings.effective) }
         }
-        store.save(settings)
+        persistSettings()
         let snapshot = settings.effective
         vision.configure(snapshot)
         if snapshot.autofocus != .single { singleFocused = false }
@@ -536,7 +552,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         }
         settings.zoom = factor
         vision.reset()
-        store.save(settings)
+        persistSettings()
         // Draw from touch immediately; hardware KVO must not animate the dial backwards.
         self.zoom = factor
         zoomCommand &+= 1
@@ -560,7 +576,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     private func reconcileZoom(_ actual: CGFloat, command: Int) {
         guard command == zoomCommand else { return }
         zoom = actual
-        if abs(settings.zoom - actual) > 0.001 { settings.zoom = actual; store.save(settings) }
+        if abs(settings.zoom - actual) > 0.001 { settings.zoom = actual; persistSettings() }
     }
     private func syncNativeZoom(_ value: CGFloat) {
         // No hardware zoom control is registered. Ignore stale intermediate KVO values
@@ -892,16 +908,31 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                     self.jobs.removeValue(forKey: capture.uniqueID)
                     self.renderingPhotos += 1
                     DispatchQueue.main.async { self.readinessCoordinator?.stopTrackingCaptureRequest(using: capture.uniqueID) }
-                    self.renderQueue.async {
-                        let renderStartedAt = ProcessInfo.processInfo.systemUptime
+                    self.photos.store(result, id: capture.uniqueID, rendering: {
+                        let time = ProcessInfo.processInfo.systemUptime
                         DispatchQueue.main.async {
-                            if self.burstMeasurement === cancellation { self.burstDiagnostics?.rendering(id: capture.uniqueID, at: renderStartedAt) }
+                            if self.burstMeasurement === cancellation { self.burstDiagnostics?.rendering(id: capture.uniqueID, at: time) }
                         }
-                        self.finishPhoto(result, id: capture.uniqueID) { success, dimensions in
-                            let storedAt = ProcessInfo.processInfo.systemUptime
-                            DispatchQueue.main.async {
-                                guard self.burstMeasurement === cancellation else { return }
-                                self.burstDiagnostics?.stored(id: capture.uniqueID, at: storedAt, succeeded: success, dimensions: dimensions)
+                    }) { saved in
+                        let time = ProcessInfo.processInfo.systemUptime
+                        self.sessionQueue.async {
+                            self.renderingPhotos -= 1
+                            let count = self.jobs.count + self.renderingPhotos
+                            DispatchQueue.main.async { self.pendingPhotos = count }
+                        }
+                        DispatchQueue.main.async {
+                            var success = false
+                            var dimensions: String?
+                            switch saved {
+                            case .success(let photo):
+                                success = photo.complete; dimensions = photo.dimensions
+                                self.lastPhotoURL = photo.url; self.lastPhotoDimensions = photo.dimensions
+                                self.status = "照片已存於 App"
+                                if let warning = photo.warning { self.error = warning }
+                            case .failure(let error): self.error = error.localizedDescription
+                            }
+                            if self.burstMeasurement === cancellation {
+                                self.burstDiagnostics?.stored(id: capture.uniqueID, at: time, succeeded: success, dimensions: dimensions)
                                 self.publishBurstReport()
                             }
                         }
@@ -932,81 +963,24 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         }
         }
     }
-    private func finishPhoto(_ result: Result<PhotoJob.Output, Error>, id: Int64, measured: (Bool, String?) -> Void) {
-        var succeeded = false
-        var dimensions: String?
-        defer {
-            measured(succeeded, dimensions)
-            sessionQueue.async {
-                self.renderingPhotos -= 1
-                let count = self.jobs.count + self.renderingPhotos
-                DispatchQueue.main.async { self.pendingPhotos = count }
-            }
-        }
-        do {
-            let output = try result.get()
-            dimensions = output.dimensions
-            DispatchQueue.main.async { self.lastPhotoDimensions = output.dimensions }
-            let directory = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            let stem = "R6_\(Int(Date().timeIntervalSince1970))_\(id)"
-            // Persist original capture first. A failed style render must never discard a photo.
-            let files = try output.data.persist(in: directory, stem: stem, processedExtension: output.type == .heic ? "heic" : "jpg")
-            let warnings = [output.data.warning, files.warning].compactMap { $0 }
-            if !warnings.isEmpty {
-                self.report(self.cameraError("拍攝不完整，已保留成功原檔：\(warnings.joined(separator: "；"))"))
-            }
-            guard let url = files.processed, let processed = output.data.processed else {
-                if let raw = files.raw {
-                    DispatchQueue.main.async {
-                        self.lastPhotoURL = raw
-                        self.status = "僅 RAW 已保留，請從回放分享原檔"
-                    }
-                    saveToLibrary(raw, rawURL: nil)
-                }
-                return
-            }
-            do {
-                let rendered = try PhotoRenderer.render(processed, settings: output.settings, type: output.type, context: photoContext)
-                try rendered.write(to: url, options: .atomic)
-                succeeded = output.data.warning == nil && files.warning == nil
-            } catch {
-                self.report(self.cameraError("風格處理失敗，已保留原始照片：\(error.localizedDescription)"))
-            }
-            DispatchQueue.main.async {
-                self.lastPhotoURL = url
-                self.status = "照片已存於 App"
-            }
-            saveToLibrary(url, rawURL: files.raw)
-        } catch { report(error) }
+    private func persistSettings() {
+        _ = store.save(settings)
+        settingsRecoveryMessage = store.diagnostics
     }
-    private func saveToLibrary(_ url: URL, rawURL: URL?) {
-        PHPhotoLibrary.requestAuthorization(for: .addOnly) { [weak self] authorization in
-            guard authorization == .authorized || authorization == .limited else {
-                DispatchQueue.main.async { self?.status = "相簿權限未開啟，照片仍保存在 App 內，可從回放分享。" }
-                return
-            }
-            PHPhotoLibrary.shared().performChanges {
-                let request = PHAssetCreationRequest.forAsset()
-                request.addResource(with: .photo, fileURL: url, options: nil)
-                if let rawURL { request.addResource(with: .alternatePhoto, fileURL: rawURL, options: nil) }
-            } completionHandler: { success, error in
-                DispatchQueue.main.async {
-                    self?.status = success ? "已儲存到相簿" : "相簿儲存失敗；原檔保留在 App"
-                    if let error { self?.error = error.localizedDescription }
-                }
-            }
-        }
+    func recoverSettingsStorage() {
+        store.recoverInvalid(); persistSettings()
+        status = "已備份無法讀取的設定並保存目前設定；損壞的 C1–C3 請重新儲存"
     }
-    func savePreset(_ name: String) { store.save(settings, key: name); status = "已儲存 \(name)" }
+    func savePreset(_ name: String) {
+        status = store.save(settings, key: name) ? "已儲存 \(name)" : "\(name) 未覆寫，請先復原設定資料"
+        settingsRecoveryMessage = store.diagnostics
+    }
     func recallPreset(_ name: String) {
-        guard let saved = store.load(name) else { status = "\(name) 尚未儲存；長按可儲存目前設定"; return }
+        let result = store.inspect(name)
+        guard let saved = result.settings else { status = result.diagnostic ?? "\(name) 尚未儲存；長按可儲存目前設定"; return }
         update { $0 = saved }
         setZoom(saved.zoom)
         status = "已載入 \(name)"
-    }
-    func galleryURLs() -> [URL] {
-        guard let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return [] }
-        return PhotoCaptureData.galleryItems((try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [])
     }
     private func cameraError(_ message: String) -> NSError {
         NSError(domain: "Camera", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
@@ -1163,7 +1137,13 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         isUIFixture && ProcessInfo.processInfo.environment["R6_UI_HARDWARE_RETURN_TEST"] == "1"
     }
     func simulateHardwareReturn() {
-        guard hardwareReturnFixture, hardwareReceiver.enabled else { return }
+        guard hardwareReturnFixture else { return }
+        hardwareInjectionCount &+= 1
+        guard hardwareReceiver.enabled else {
+            recordHardware(.reset, time: CACurrentMediaTime(), available: false,
+                decision: HardwareShutter.Decision(actions: [], reason: "fixture-receiver-disabled"), eventName: "fixtureInjectionRejected")
+            return
+        }
         hardwareControlsSupported = true
         isRunning = true
         controlsActive = true
@@ -1197,48 +1177,4 @@ private final class CaptureCancellation {
     private var cancelled = false
     var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
     func cancel() { lock.lock(); cancelled = true; lock.unlock() }
-}
-
-private final class PhotoJob: NSObject, AVCapturePhotoCaptureDelegate {
-    struct Output {
-        let data: PhotoCaptureData
-        let settings: CameraSettings
-        let type: UTType
-        let dimensions: String?
-    }
-    let settings: CameraSettings
-    let type: UTType
-    let onCaptured: () -> Void
-    let completion: (Result<Output, Error>) -> Void
-    private var processed: Data?
-    private var raw: Data?
-    private var processingError: Error?
-    private var captured = false
-    private var dimensions: String?
-    init(settings: CameraSettings, type: UTType, onCaptured: @escaping () -> Void, completion: @escaping (Result<Output, Error>) -> Void) {
-        self.settings = settings; self.type = type; self.onCaptured = onCaptured; self.completion = completion
-    }
-    func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
-        if let error { processingError = error; return }
-        if !photo.isRawPhoto {
-            let size = photo.resolvedSettings.photoDimensions
-            dimensions = "\(size.width) × \(size.height)"
-        }
-        guard let data = photo.fileDataRepresentation() else { return }
-        if photo.isRawPhoto { raw = data } else { processed = data }
-    }
-    func photoOutput(_ output: AVCapturePhotoOutput, didCapturePhotoFor resolvedSettings: AVCaptureResolvedPhotoSettings) {
-        guard !captured else { return }
-        captured = true
-        onCaptured()
-    }
-    func photoOutput(_ output: AVCapturePhotoOutput, didFinishCaptureFor resolvedSettings: AVCaptureResolvedPhotoSettings, error: Error?) {
-        let data = PhotoCaptureData(processed: processed, raw: raw, requiresRAW: settings.format == .raw,
-                                    error: (error ?? processingError)?.localizedDescription)
-        guard !data.isEmpty else {
-            completion(.failure(NSError(domain: "Photo", code: 1, userInfo: [NSLocalizedDescriptionKey: data.warning ?? "相機未傳回照片資料。"])))
-            return
-        }
-        completion(.success(Output(data: data, settings: settings, type: type, dimensions: dimensions)))
-    }
 }

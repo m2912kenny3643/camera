@@ -172,16 +172,3 @@ struct CameraSettings: Codable, Equatable {
         seconds >= 1 ? String(format: "%.1f\"", seconds) : "1/\(Int((1 / max(seconds, 0.000001)).rounded()))"
     }
 }
-
-struct SettingsStore {
-    private let defaults: UserDefaults
-    init(defaults: UserDefaults = .standard) { self.defaults = defaults }
-    func load(_ key: String = "current") -> CameraSettings? {
-        guard let data = defaults.data(forKey: "camera.\(key)") else { return nil }
-        return try? JSONDecoder().decode(CameraSettings.self, from: data)
-    }
-    func save(_ settings: CameraSettings, key: String = "current") {
-        guard let data = try? JSONEncoder().encode(settings) else { return }
-        defaults.set(data, forKey: "camera.\(key)")
-    }
-}

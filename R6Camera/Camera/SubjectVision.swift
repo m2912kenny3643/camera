@@ -111,7 +111,7 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 self.onBirdStatus?("鳥眼模型已載入；真機準確度與效能待驗收")
             } catch {
                 self.birdModel = nil
-                self.onBirdStatus?(error.localizedDescription)
+                self.onBirdStatus?(DetectionPolicy.birdFailure(error.localizedDescription, bodyAvailable: self.model != nil))
             }
             do {
                 guard let url = Bundle.main.url(forResource: "YOLOv3TinyInt8LUT", withExtension: "mlmodelc") else {
@@ -121,6 +121,9 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 config.computeUnits = .all
                 self.model = try VNCoreMLModel(for: MLModel(contentsOf: url, configuration: config))
             } catch { self.onModelError?(error.localizedDescription) }
+            if self.birdModel == nil {
+                self.onBirdStatus?(DetectionPolicy.birdFailure("專用模型未載入", bodyAvailable: self.model != nil))
+            }
         }
     }
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
@@ -173,7 +176,7 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         var detections: [SubjectDetection] = []
         if settings.autofocus != .manual && settings.subjects != .none {
             do {
-                if settings.subjects != .birds, let model {
+                if DetectionPolicy.needsBodyModel(subjects: settings.subjects, birdAvailable: birdModel != nil), let model {
                     let request = VNCoreMLRequest(model: model)
                     request.imageCropAndScaleOption = .scaleFill
                     try handler.perform([request])
@@ -204,7 +207,7 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                         detections.append(contentsOf: birds)
                     } catch {
                         self.birdModel = nil
-                        onBirdStatus?("鳥眼推論失敗，已回到身體辨識：\(error.localizedDescription)")
+                        onBirdStatus?(DetectionPolicy.birdFailure(error.localizedDescription, bodyAvailable: model != nil))
                     }
                 }
             } catch {

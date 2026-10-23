@@ -10,6 +10,7 @@ struct CameraSettingsView: View {
     @State private var resetPrompt = false
     @State private var birdTest = false
     @State private var calibratePrompt = false
+    @State private var recoveryPrompt = false
     private let names = ["拍攝", "AF", "播放", "設定", "自訂", "我的選單"]
     private let symbols = ["camera.fill", "AF", "play.rectangle", "wrench.fill", "camera.badge.ellipsis", "star.fill"]
     private let colors: [Color] = [.red, Color(red: 0.92, green: 0.1, blue: 0.58), .blue, .yellow, .orange, .green]
@@ -62,6 +63,11 @@ struct CameraSettingsView: View {
                             menuRow("解除觸控對焦", value: "清除") { camera.unlockTracking() }
                         }
                         if tab == 3 {
+                            PhotoStorageStatus(store: camera.photos)
+                            if let message = camera.settingsRecoveryMessage {
+                                Text(message).font(.system(size: 11)).foregroundStyle(.yellow)
+                                Button("復原設定資料") { recoveryPrompt = true }.accessibilityIdentifier("settings.recover")
+                            }
                             toggleRow("實驗性兩段硬體快門", path: \.experimentalHardwareShutter)
                                 .accessibilityIdentifier("hardwareShutter.experimental")
                                 .accessibilityValue(camera.settings.experimentalHardwareShutter ? "開啟" : "關閉")
@@ -134,6 +140,9 @@ struct CameraSettingsView: View {
             .confirmationDialog("重設所有拍攝設定？", isPresented: $resetPrompt) {
                 Button("重設", role: .destructive) { camera.update { $0 = CameraSettings() }; camera.setZoom(1); camera.unlockTracking() }
             }
+            .confirmationDialog("備份無法讀取的設定並使用目前設定？", isPresented: $recoveryPrompt) {
+                Button("備份後復原") { camera.recoverSettingsStorage() }
+            } message: { Text("保留原始資料備份；無法讀取的 C1–C3 需重新儲存，其餘設定不變。") }
     }
     private func menuRow(_ title: String, value: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
