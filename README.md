@@ -3,7 +3,7 @@
 原生 Swift iPhone 相機，參考 EOS R6 Mark III 的拍攝資訊與 Q／MENU 操作。
 目標裝置：iPhone 17 標準版、iOS 27。這是獨立專案，並非 Canon 官方 App。
 
-## 0.7 含鳥眼模型功能測試版
+## 0.8.0 對焦區域與硬體快門修正版
 
 已隨 App 封裝 Android NeoFocus 的固定 320×320 `bird-eye.onnx`，使用 ONNX Runtime 1.24.2 CPU 離線推論，不需安裝後下載。來源、雜湊、模型卡及 AGPL／MIT 授權脈絡見 [散布證據](docs/research/android-bird-0.7.md)。本版走公開完整來源的非商業研究功能測試路線，未宣稱商業權利或正式準確度合格。
 
@@ -17,7 +17,7 @@
 
 1. Push 到 `main`／`codex/r6-0.4`，或在 Actions → **Build iPhone IPA** → **Run workflow**。
 2. 工作流程下載 Apple 主體偵測模型、產生 Xcode 專案、執行測試並編譯。
-3. 全部測試成功後下載 **R6Camera-0.7-functional-bird-IPA** artifact，解壓取得 `.ipa`。
+3. 全部測試成功後下載 **R6Camera-0.8-focus-areas-IPA** artifact，解壓取得 `.ipa`。
 4. 使用相容的側載工具重新簽署後安裝；下載的 IPA 不能直接永久安裝。
    免費帳號的簽署有效期與 App 數量限制依 Apple 和側載工具規定。
 
