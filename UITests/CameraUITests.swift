@@ -63,6 +63,11 @@ final class CameraUITests: XCTestCase {
             let installed = NSPredicate(format: "value BEGINSWITH %@", "content-view-installed:hardware.host.\(host):")
             expectation(for: installed, evaluatedWith: trigger); waitForExpectations(timeout: 5)
             trigger.tap()
+            let evidence = XCTAttachment(string: app.buttons.matching(identifier: "fixture.hardwareReturn").allElementsBoundByIndex
+                .filter { $0.isHittable }.compactMap { $0.value as? String }.joined(separator: "\n"))
+            evidence.name = "Hardware return diagnostic after \(host) injection"
+            evidence.lifetime = .keepAlways
+            add(evidence)
             returnedShots += 1
             let feedback = app.buttons["fixture.capture"]
             let returned = NSPredicate(format: "value == %@", String(returnedShots))

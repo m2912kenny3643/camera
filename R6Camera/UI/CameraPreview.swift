@@ -28,7 +28,7 @@ struct HardwareReturnTestButton: View {
         if camera.hardwareReturnFixture {
             Button("輕按測試") { camera.simulateHardwareReturn() }
                 .accessibilityIdentifier("fixture.hardwareReturn")
-                .accessibilityValue(camera.hardwareReceiver.enabled ? "content-view-installed:\(camera.hardwareReceiver.host)" : "receiver-disabled")
+                .accessibilityValue((camera.hardwareReceiver.enabled ? "content-view-installed:\(camera.hardwareReceiver.host)" : "receiver-disabled") + "\n" + camera.hardwareShutterReport)
                 .buttonStyle(.plain).font(.caption).padding(6).background(.black).foregroundStyle(.yellow)
                 .fixedSize()
         }
