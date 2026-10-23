@@ -47,6 +47,7 @@ struct FocusAreaOptions: View {
                             FocusAreaGlyph(mode: mode).padding(6)
                                 .foregroundStyle(draft.focusArea.mode == mode ? Color.cyan : .white)
                                 .overlay(Rectangle().stroke(draft.focusArea.mode == mode ? accent : .gray, lineWidth: 1.5))
+                                .contentShape(Rectangle())
                         }.accessibilityLabel(mode.rawValue).accessibilityIdentifier("option.\(mode.rawValue)")
                             .accessibilityValue(draft.focusArea.mode == mode ? "已選取" : "")
                     }
