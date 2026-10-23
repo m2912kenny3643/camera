@@ -20,7 +20,16 @@ The separate H-mode burst sample contained 5 successful HEIF photos, measured 2.
 - Regression cases replay the five rejected timestamps and cover long/repeated activation, held-event ordering, 300ms expiry, covered-page rejection, transition-queued single/burst capture, release/cancellation, lifecycle reset and legacy behavior.
 - Added a simulator UI test returning from Q with an unconfirmed choice, menu editor, nested diagnostics, playback and zoom, with immediate full click queued during each return.
 - Separate standards/spec reviews passed after fixing stale authorization, window ownership and background-dismissal issues.
-- First CI source `8dc6d7ea034be8b8a6a6152a2d448800ec4ae784`, [run 39939642555](https://github.com/m2912kenny3643/camera/actions/runs/39939642555): 85 macOS tests, 91 iOS tests and device Release archive passed. The new UI test failed before exercising return because its simulator-only trigger overlapped Q; the failure hierarchy showed a mock shot count of 1 immediately after tapping Q. The trigger was moved away and a frame non-overlap assertion was added. All three existing UI tests passed. Final rerun and IPA verification are pending.
+- First CI source `8dc6d7ea034be8b8a6a6152a2d448800ec4ae784`, [run 39939642555](https://github.com/m2912kenny3643/camera/actions/runs/39939642555): 85 macOS tests, 91 iOS tests and device Release archive passed. The new UI test failed before exercising return because its simulator-only trigger overlapped Q; the failure hierarchy showed a mock shot count of 1 immediately after tapping Q. The trigger was moved away and a frame non-overlap assertion was added. All three existing UI tests passed. The successful rerun is recorded below.
+
+### Final verified result
+
+- Source `2d49919de1a6c9243ada5b0f18cf3950a506d71b`, [run 39941349585](https://github.com/m2912kenny3643/camera/actions/runs/39941349585): **success**. Xcode 27 Release device archive, 85 macOS tests, 91 iOS tests and all 4 UI tests passed. The 14 hardware-gate tests passed; the new cross-page return test passed in 77.076 seconds, validating six deferred single-shot requests and draft cancellation.
+- IPA artifact `12497011444`; UI screenshots `12496557967`; diagnostics `12497066313`. Downloaded package version **0.7.1**, build **8**, bundled source commit exactly matches the source above.
+- IPA ZIP integrity, pinned bird model and all required notices/source gate passed against raw committed files (avoiding Windows checkout newline differences). Size **30,002,532 bytes**, SHA-256 `e78a275b0bbae0c0bacbcd13c4f59f72e05deef3cb0e67252c8ac792195c492c`.
+- Local installation file: `build/output/R6Camera-0.7.1-unsigned.ipa`. Re-sign before installing. The source/notice gates and pre-existing functional-bird label do not establish formal bird-model accuracy or hardware performance.
+- Inspected actual settings and returned-camera screenshots. The yellow hardware trigger and mocked photo counts are simulator-test instrumentation; they are unavailable on a real device. Physical page-return and repeated-shutter operation still require user retesting on iOS 27.0.1.
+- Zoom coverage has a narrower boundary: its pre-existing 2-second auto-close was enabled in the return test. The wheel existed before the sequence and was absent afterward, but this does not isolate half-press dismissal from its timeout. The shared return handler explicitly clears `zoomOpen`; verify immediate zoom dismissal physically as part of device retesting.
 
 ## Device retest still needed
 
