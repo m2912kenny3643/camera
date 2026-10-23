@@ -2,6 +2,32 @@ import XCTest
 @testable import R6Camera
 
 final class BirdPoseTests: XCTestCase {
+    func testAndroid320CropInversionAndSeparateTensorContract() {
+        let rows: [Double] = [160,160,160,160,0.9, 185,140,0.9, 150,130,0.9,
+                              165,130,0.1, 155,110,0.9, 120,190,0.2, 200,190,0.2]
+        let poses = BirdPoseDecoder.decode(imageSize: CGSize(width: 1000, height: 750), anchors: 2100, at: 1,
+                                          contract: .android320, region: CGRect(x: 0.2, y: 0.2, width: 0.4, height: 0.4)) { r,i in i == 0 ? rows[r] : 0 }
+        XCTAssertEqual(poses.count, 1)
+        XCTAssertEqual(poses[0].body.midX, 0.4, accuracy: 0.000001)
+        XCTAssertEqual(poses[0].body.midY, 0.4, accuracy: 0.000001)
+        XCTAssertNotNil(poses[0].detection.leftEye)
+        XCTAssertNil(poses[0].detection.rightEye)
+        XCTAssertTrue(BirdPoseDecoder.decode(imageSize: CGSize(width: 640, height: 480), anchors: 8400, at: 1, contract: .android320) { _,_ in 1 }.isEmpty)
+        XCTAssertEqual(BirdCrop(imageSize: CGSize(width: 640, height: 480), region: CGRect(x: 0,y: 0,width: 1,height: 1), padding: 1).square.minY, -80)
+    }
+    func testObservedPairHeadFallbackDoesNotInventInvisibleEye() {
+        let body = CGRect(x: 0.1,y: 0.1,width: 0.8,height: 0.8)
+        let points: [BirdPoseObservation.Landmark: BirdPoseObservation.Point] = [
+            .leftEye: .init(position: CGPoint(x: 0.4,y: 0.3), confidence: 0.5),
+            .beak: .init(position: CGPoint(x: 0.5,y: 0.35), confidence: 0.9)]
+        let pose = BirdPoseObservation(body: body, confidence: 0.9, keypoints: points, timestamp: 1)
+        XCTAssertNil(pose.detection.leftEye)
+        XCTAssertNotNil(pose.detection.headBounds)
+        let frontal = BirdPoseObservation(body: body, confidence: 0.9, keypoints: [
+            .leftEye: .init(position: CGPoint(x: 0.4,y: 0.3), confidence: 0.9),
+            .rightEye: .init(position: CGPoint(x: 0.5,y: 0.3), confidence: 0.9)], timestamp: 1)
+        XCTAssertNotNil(frontal.detection.headBounds)
+    }
     func testStaleFutureNonfiniteAndOutOfOrderFramesNeverOverwriteNewerTracking() {
         var freshness = FrameFreshness()
         XCTAssertTrue(freshness.accept(1, now: 1.1))

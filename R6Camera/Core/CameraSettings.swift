@@ -6,12 +6,13 @@ enum ExposureProgram: String, CaseIterable, Codable, Identifiable {
 }
 
 enum SubjectMode: String, CaseIterable, Codable, Identifiable {
-    case automatic = "自動", people = "人物", animals = "動物", vehicles = "車輛", none = "無"
+    case automatic = "自動", people = "人物", birds = "鳥類", animals = "動物", vehicles = "車輛", none = "無"
     var id: String { rawValue }
     func accepts(_ kind: SubjectKind) -> Bool {
         switch self {
         case .automatic: return true
         case .people: return kind == .person
+        case .birds: return kind == .bird
         case .animals: return kind.isAnimal
         case .vehicles: return kind.isVehicle
         case .none: return false

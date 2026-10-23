@@ -42,11 +42,8 @@ jobs:
       - name: Check optional bird model distribution gate
         run: |
           set -euo pipefail
-          if find R6Camera/Resources -maxdepth 1 -iname '*bird*' | grep -q .; then
-            python3 scripts/check_bird_release.py
-          else
-            echo 'Validation build: no bird-eye model. Full bird-eye IPA delivery remains blocked.' >> "$GITHUB_STEP_SUMMARY"
-          fi
+          python3 scripts/check_bird_functional_release.py
+          echo '0.7 functional test: pinned Android ONNX bundled. Formal 100-image and phone qualification pending.' >> "$GITHUB_STEP_SUMMARY"
           cp LICENSE R6Camera/Resources/APP-LICENSE.txt
           git rev-parse HEAD > R6Camera/Resources/SOURCE-COMMIT.txt
       - name: Generate Xcode project
@@ -58,6 +55,7 @@ jobs:
           swift test 2>&1 | tee build/core-tests.log
           python3 scripts/test_packaging.py
           python3 scripts/test_bird_release.py
+          python3 scripts/test_bird_functional_release.py
           python3 scripts/test_simulator.py
           python3 scripts/test_bird_eval_metrics.py
       - name: Archive unsigned iPhone app
@@ -69,6 +67,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
             2>&1 | tee build/archive.log
           python3 scripts/package_ipa.py build/R6Camera.xcarchive build/R6Camera-unsigned.ipa
+          python3 scripts/check_bird_functional_release.py build/R6Camera-unsigned.ipa
       - name: Boot dedicated iPhone simulator
         timeout-minutes: 7
         run: python3 scripts/prepare_simulator.py
@@ -113,9 +112,10 @@ jobs:
       - name: Upload validation IPA after tests
         uses: actions/upload-artifact@v4
         with:
-          name: R6Camera-0.6-validation-IPA-no-bird
+          name: R6Camera-0.7-functional-bird-IPA
           path: |
             build/R6Camera-unsigned.ipa
             build/model-provenance.json
-            docs/bird-release.json
+            docs/bird-functional-release.json
+            docs/research/android-bird-0.7.md
           if-no-files-found: error

@@ -10,15 +10,30 @@ settings:
     TARGETED_DEVICE_FAMILY: "1"
     IPHONEOS_DEPLOYMENT_TARGET: "18.0"
     CODE_SIGNING_ALLOWED: NO
-    MARKETING_VERSION: "0.6.0"
-    CURRENT_PROJECT_VERSION: "6"
+    MARKETING_VERSION: "0.7.0"
+    CURRENT_PROJECT_VERSION: "7"
+packages:
+  OnnxRuntime:
+    url: https://github.com/microsoft/onnxruntime-swift-package-manager
+    exactVersion: 1.24.2
 targets:
   R6Camera:
     type: application
     platform: iOS
+    dependencies:
+      - package: OnnxRuntime
+        product: onnxruntime
     sources:
       - path: R6Camera
-        excludes: [Info.plist]
+        excludes: [Info.plist, Resources/BirdEyePose.onnx, Resources/BIRD-MODEL-CARD.md, Resources/BIRD-FIXTURE-SOURCES.json, Resources/LICENSE-ULTRALYTICS.txt]
+      - path: R6Camera/Resources/BirdEyePose.onnx
+        buildPhase: resources
+      - path: R6Camera/Resources/BIRD-MODEL-CARD.md
+        buildPhase: resources
+      - path: R6Camera/Resources/BIRD-FIXTURE-SOURCES.json
+        buildPhase: resources
+      - path: R6Camera/Resources/LICENSE-ULTRALYTICS.txt
+        buildPhase: resources
     info:
       path: R6Camera/Info.plist
       properties:

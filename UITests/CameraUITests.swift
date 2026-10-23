@@ -93,22 +93,42 @@ final class CameraUITests: XCTestCase {
         capture("08-Touch-point-single")
         verifyCaptureFeedbackLeavesLiveViewUncovered(app)
     }
+    func testActualBundledBirdFunctionalScreens() {
+        continueAfterFailure = false
+        let app = XCUIApplication(); app.launchEnvironment["R6_UI_TESTING"] = "1"; app.launch()
+        XCTAssertTrue(app.buttons["MENU"].waitForExistence(timeout: 10)); app.buttons["MENU"].tap()
+        app.buttons["menu.tab.1"].tap()
+        let open = app.buttons["bird.test.open"]
+        if !open.isHittable { app.swipeUp() }
+        XCTAssertTrue(open.waitForExistence(timeout: 5)); open.tap()
+        let state = app.staticTexts["bird.test.status"]
+        for (sample, expected) in [("eagle","眼睛"),("head","頭部"),("body","身體")] {
+            let button = app.buttons["bird.test.case.\(sample)"]
+            let ready = NSPredicate(format: "enabled == true")
+            expectation(for: ready, evaluatedWith: button); waitForExpectations(timeout: 30)
+            button.tap()
+            let complete = NSPredicate(format: "value == %@", expected)
+            expectation(for: complete, evaluatedWith: state); waitForExpectations(timeout: 30)
+            capture("Bird-\(sample)-actual-ONNX")
+        }
+        app.buttons["bird.test.close"].tap()
+        XCTAssertTrue(app.buttons["menu.close"].waitForExistence(timeout: 5))
+    }
     private func verifyDriveAndExposureEditors(_ app: XCUIApplication) {
         let drive = app.buttons["hud.drive"]
         drive.tap()
         app.buttons["option.高速連拍 H+"].tap()
-        app.buttons["drive.rate.12"].tap()
+        XCTAssertTrue(app.staticTexts["drive.calibrationHint"].exists)
         capture("05-Drive-Hplus-pending")
         app.buttons["editor.confirm"].tap()
         XCTAssertEqual(drive.value as? String, "高速連拍 H+")
         drive.tap()
-        XCTAssertEqual(app.buttons["drive.rate.12"].value as? String, "已選取")
-        app.buttons["drive.rate.10"].tap()
+        XCTAssertTrue(app.staticTexts["drive.calibrationHint"].exists)
         app.buttons["option.高速連拍 H"].tap()
         app.buttons["editor.back"].tap()
         XCTAssertEqual(drive.value as? String, "高速連拍 H+")
         drive.tap()
-        XCTAssertEqual(app.buttons["drive.rate.12"].value as? String, "已選取")
+        XCTAssertTrue(app.staticTexts["drive.calibrationHint"].exists)
         XCTAssertTrue(app.buttons["option.自拍連拍"].isHittable)
         app.buttons["option.自拍連拍"].tap()
         let count = app.steppers["drive.timerCount"]

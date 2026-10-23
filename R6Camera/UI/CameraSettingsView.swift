@@ -8,6 +8,8 @@ struct CameraSettingsView: View {
     @State private var editor: CameraControl?
     @State private var selected = CameraControl.format.rawValue
     @State private var resetPrompt = false
+    @State private var birdTest = false
+    @State private var calibratePrompt = false
     private let names = ["拍攝", "AF", "播放", "設定", "自訂", "我的選單"]
     private let symbols = ["camera.fill", "AF", "play.rectangle", "wrench.fill", "camera.badge.ellipsis", "star.fill"]
     private let colors: [Color] = [.red, Color(red: 0.92, green: 0.1, blue: 0.58), .blue, .yellow, .orange, .green]
@@ -53,12 +55,17 @@ struct CameraSettingsView: View {
                                 .accessibilityIdentifier("menu.\(control.rawValue)")
                         }
                         if tab == 1 {
+                            menuRow("鳥眼模型功能測試", value: "固定照片") { birdTest = true }.accessibilityIdentifier("bird.test.open")
                             Text("待選時基本自動對焦；觸控主體藍框追焦，空白處單次對焦。").font(.system(size: 10)).foregroundStyle(.gray).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 4)
                             Text(camera.birdStatus).font(.system(size: 10)).foregroundStyle(.gray).frame(maxWidth: .infinity, alignment: .leading)
                             if safePage == 1 { toggleRow("峰值邊緣輔助", path: \.peaking) }
                             menuRow("解除觸控對焦", value: "清除") { camera.unlockTracking() }
                         }
                         if tab == 3 {
+                            menuRow("連拍穩定速度校準", value: camera.isCalibrating ? "取消" : "開始") {
+                                if camera.isCalibrating { camera.cancelBurstCalibration() } else { calibratePrompt = true }
+                            }.accessibilityIdentifier("burst.calibrate")
+                            Text(camera.calibrationStatus).font(.system(size: 11)).foregroundStyle(.yellow).frame(maxWidth: .infinity, alignment: .leading)
                             if let report = camera.burstReportText {
                                 ShareLink(item: report) { Label("分享最近連拍量測 JSON", systemImage: "square.and.arrow.up") }
                                     .font(.system(size: 13)).padding(.vertical, 6).accessibilityIdentifier("burst.shareReport")
@@ -103,6 +110,10 @@ struct CameraSettingsView: View {
                     }
                 }
         }.preferredColorScheme(.dark)
+            .fullScreenCover(isPresented: $birdTest) { BirdDiagnosticsView() }
+            .confirmationDialog("校準會實際拍照及存檔。開啟鳥眼，返回取景後，每段按住相機鍵至少10秒；三段通過才保存。", isPresented: $calibratePrompt) {
+                Button("開始真機校準") { camera.startBurstCalibration() }
+            }
             .confirmationDialog("重設所有拍攝設定？", isPresented: $resetPrompt) {
                 Button("重設", role: .destructive) { camera.update { $0 = CameraSettings() }; camera.setZoom(1); camera.unlockTracking() }
             }

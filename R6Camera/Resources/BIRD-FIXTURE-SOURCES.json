@@ -1,0 +1,156 @@
+{
+  "retrieved": "2026-10-23",
+  "purpose": "Functional smoke only; four original photos, derived masks are not independent test images",
+  "fixtures": [
+    {
+      "file": "eagle.png",
+      "author": "Dayane Machado",
+      "license": "CC0-1.0",
+      "source_page": "https://gitlab.com/scikit-image/data/-/blob/master/README.md",
+      "download_url": "https://gitlab.com/scikit-image/data/-/raw/master/eagle.png",
+      "scenario": "Whole golden eagle, one clearly visible eye; Android bird.png reference.",
+      "sha256": "928f1bbe7403b533265f56db3a6b07c835dfa8e2513f5c5075ca2f1960f6179e",
+      "bytes": 1511050,
+      "pixels": [
+        1826,
+        2019
+      ],
+      "independent_accuracy_sample": false
+    },
+    {
+      "file": "owl-front.jpg",
+      "author": "Ted Moravec",
+      "license": "CC0-1.0",
+      "source_page": "https://commons.wikimedia.org/wiki/File:An_owl_portrait_(52264733713).jpg",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/6/67/An_owl_portrait_%2852264733713%29.jpg",
+      "scenario": "Close oblique owl portrait; historical filename does not mean frontal. Localization needs scoring.",
+      "sha256": "f28f3f955dd00276a6bed80295cc2c31d26bd2f7277e6ab1e94699bdd2ae0c76",
+      "bytes": 1322887,
+      "pixels": [
+        2700,
+        1800
+      ],
+      "independent_accuracy_sample": false
+    },
+    {
+      "file": "snowy-owl.jpg",
+      "author": "Petr Kratochvil",
+      "license": "CC0-1.0",
+      "source_page": "https://commons.wikimedia.org/wiki/File:Snowy_Owl_Portrait.jpg",
+      "download_url": "https://upload.wikimedia.org/wikipedia/commons/5/52/Snowy_Owl_Portrait.jpg",
+      "scenario": "Frontal snowy owl, two visible eyes.",
+      "sha256": "bc263aaf8ca0ad81ba86f25f9b4241bd9b3aa0ee78a97f7e9a32d942f10aaad0",
+      "bytes": 564973,
+      "pixels": [
+        1280,
+        1920
+      ],
+      "independent_accuracy_sample": false
+    },
+    {
+      "file": "flock.jpg",
+      "author": "Heather Henkel / USGS St. Petersburg Coastal and Marine Science Center",
+      "license": "Public Domain (USGS source declaration)",
+      "source_page": "https://www.usgs.gov/media/images/flock-birds",
+      "download_url": "https://d9-wret.s3.us-west-2.amazonaws.com/assets/palladium/production/s3fs-public/DSCN0059.JPG",
+      "scenario": "Distant multi-bird scene; model found no candidates.",
+      "sha256": "e56724281d99fc7fd608f9ca740c4a71a66217fba925f046039c00fc8959ce94",
+      "bytes": 800803,
+      "pixels": [
+        1600,
+        1200
+      ],
+      "independent_accuracy_sample": false
+    },
+    {
+      "file": "eagle-eyes-masked-0.025.jpg",
+      "derived_from": "eagle.png",
+      "license": "CC0-1.0; artificial rectangular grey masks added for functional downgrade smoke",
+      "sha256": "f1a3b91599d954440fc1c839881d8fe40941ed8eaffd4628552572f6ec739a6a",
+      "bytes": 351912,
+      "synthetic_occlusion": true,
+      "independent_accuracy_sample": false,
+      "mask_radius_fraction": 0.025
+    },
+    {
+      "file": "eagle-eyes-masked-0.045.jpg",
+      "derived_from": "eagle.png",
+      "license": "CC0-1.0; artificial rectangular grey masks added for functional downgrade smoke",
+      "sha256": "e5bd3ca723acbfb6d031c875859dd3ac2cfab54533e3dfb1f779d1ffe34d3bb6",
+      "bytes": 350731,
+      "synthetic_occlusion": true,
+      "independent_accuracy_sample": false,
+      "mask_radius_fraction": 0.045
+    },
+    {
+      "file": "eagle-eyes-masked-0.07.jpg",
+      "derived_from": "eagle.png",
+      "license": "CC0-1.0; artificial rectangular grey masks added for functional downgrade smoke",
+      "sha256": "d1370e599755a8b156ef36eebd8c545bafaf498a8810c386b206265e3780db3f",
+      "bytes": 350356,
+      "synthetic_occlusion": true,
+      "independent_accuracy_sample": false,
+      "mask_radius_fraction": 0.07
+    },
+    {
+      "file": "owl-front-eyes-masked-0.025.jpg",
+      "derived_from": "owl-front.jpg",
+      "license": "CC0-1.0; artificial rectangular grey masks added for functional downgrade smoke",
+      "sha256": "03a189be0290210d867e12f99ef5d1bf3231bf822b4b6d41cbcf12fd6e2fba11",
+      "bytes": 470489,
+      "synthetic_occlusion": true,
+      "independent_accuracy_sample": false,
+      "mask_radius_fraction": 0.025
+    },
+    {
+      "file": "owl-front-eyes-masked-0.045.jpg",
+      "derived_from": "owl-front.jpg",
+      "license": "CC0-1.0; artificial rectangular grey masks added for functional downgrade smoke",
+      "sha256": "053e45406479484ac2a569adf719b732190e32c78b5c404d4de9bc23093f73d2",
+      "bytes": 467061,
+      "synthetic_occlusion": true,
+      "independent_accuracy_sample": false,
+      "mask_radius_fraction": 0.045
+    },
+    {
+      "file": "owl-front-eyes-masked-0.07.jpg",
+      "derived_from": "owl-front.jpg",
+      "license": "CC0-1.0; artificial rectangular grey masks added for functional downgrade smoke",
+      "sha256": "452b8db4a7615e6cd583e822ef4801f137dd6c9f916af7f461b4c443275e3c06",
+      "bytes": 455846,
+      "synthetic_occlusion": true,
+      "independent_accuracy_sample": false,
+      "mask_radius_fraction": 0.07
+    },
+    {
+      "file": "snowy-owl-eyes-masked-0.025.jpg",
+      "derived_from": "snowy-owl.jpg",
+      "license": "CC0-1.0; artificial rectangular grey masks added for functional downgrade smoke",
+      "sha256": "72d044caaab87cbe77bddc682e8df245de153db9a619c6252cbf3ee9b66aa58a",
+      "bytes": 257556,
+      "synthetic_occlusion": true,
+      "independent_accuracy_sample": false,
+      "mask_radius_fraction": 0.025
+    },
+    {
+      "file": "snowy-owl-eyes-masked-0.045.jpg",
+      "derived_from": "snowy-owl.jpg",
+      "license": "CC0-1.0; artificial rectangular grey masks added for functional downgrade smoke",
+      "sha256": "e825d764b0e9a6dfe8a574fe7ab4b2203275b62f1528b881122e5f3b458de536",
+      "bytes": 254431,
+      "synthetic_occlusion": true,
+      "independent_accuracy_sample": false,
+      "mask_radius_fraction": 0.045
+    },
+    {
+      "file": "snowy-owl-eyes-masked-0.07.jpg",
+      "derived_from": "snowy-owl.jpg",
+      "license": "CC0-1.0; artificial rectangular grey masks added for functional downgrade smoke",
+      "sha256": "d3f3ce04eaf08d4171c08e11d8d4cadeb70b60ebc7b21b4736dc75229b748037",
+      "bytes": 245917,
+      "synthetic_occlusion": true,
+      "independent_accuracy_sample": false,
+      "mask_radius_fraction": 0.07
+    }
+  ]
+}

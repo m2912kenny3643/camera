@@ -8,10 +8,22 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     let queue = DispatchQueue(label: "camera.vision", qos: .userInitiated)
     let captureQueue = DispatchQueue(label: "camera.frames", qos: .userInteractive)
     private let renderQueue = DispatchQueue(label: "camera.preview", qos: .userInteractive)
+    private let trackingQueue = DispatchQueue(label: "camera.bird.tracking", qos: .userInitiated)
+    private let trackingSlot = DispatchSemaphore(value: 1)
+    private let birdFlow = BirdFrameTracker() // trackingQueue only
     private let inferenceSlot = DispatchSemaphore(value: 1)
     private let renderSlot = DispatchSemaphore(value: 1)
     private let snapshotLock = NSLock()
     private var previewSettings = CameraSettings()
+    private var epoch: UInt64 = 0 // snapshotLock
+    private var frameSequence: UInt64 = 0 // captureQueue
+    private var trackingSeed: BirdFrameTracker.Seed? // snapshotLock
+    var currentEpoch: UInt64 { snapshotLock.lock(); defer { snapshotLock.unlock() }; return epoch }
+    @discardableResult private func invalidate() -> UInt64 {
+        snapshotLock.lock(); defer { snapshotLock.unlock() }
+        epoch &+= 1; trackingSeed = nil
+        return epoch
+    }
     var onFrame: ((TrackingResult, CGSize, [Float], CGImage?) -> Void)?
     var onPreview: ((CGImage, CGSize) -> Void)?
     var onModelError: ((String) -> Void)?
@@ -29,6 +41,7 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     func configure(_ requested: CameraSettings) {
         let settings = requested.effective
         snapshotLock.lock()
+        if FocusConfiguration(previewSettings) != FocusConfiguration(settings) { epoch &+= 1; trackingSeed = nil }
         previewSettings = settings
         snapshotLock.unlock()
         queue.async {
@@ -43,23 +56,26 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
     }
     func select(_ point: CGPoint) {
+        let selectionEpoch = invalidate()
         queue.async {
             guard self.settings.autofocus != .manual else { return }
             self.tracker.select(at: point, eyes: self.settings.eyes, mode: self.settings.autofocus)
-            self.publish(self.tracker.result, histogram: [])
+            self.publish(self.tracker.result, histogram: [], epoch: selectionEpoch)
         }
     }
     func unlock() {
+        let unlockEpoch = invalidate()
         queue.async {
             self.tracker.unlock()
-            self.publish(self.tracker.result, histogram: [])
+            self.publish(self.tracker.result, histogram: [], epoch: unlockEpoch)
         }
     }
-    func reset() { queue.async { self.tracker.reset(); self.lastAspect = 0 } }
+    func reset() { invalidate(); queue.async { self.tracker.reset(); self.lastAspect = 0 } }
     func loadModel() {
         queue.async {
             do {
-                self.birdModel = try BirdPoseModel()
+                if Bundle.main.url(forResource: BirdONNXModel.resource, withExtension: "onnx") != nil { self.birdModel = try BirdONNXModel() }
+                else { self.birdModel = try BirdPoseModel() }
                 self.onBirdStatus?("鳥眼模型已載入；真機準確度與效能待驗收")
             } catch {
                 self.birdModel = nil
@@ -81,7 +97,21 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         guard let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         snapshotLock.lock()
         let snapshot = previewSettings
+        let frameEpoch = epoch
+        let seed = trackingSeed
         snapshotLock.unlock()
+        frameSequence &+= 1
+        let sequence = frameSequence
+        if let seed, seed.epoch == frameEpoch, trackingSlot.wait(timeout: .now()) == .success {
+            trackingQueue.async {
+                defer { self.trackingSlot.signal() }
+                do {
+                    if let result = try self.birdFlow.update(buffer, seed: seed, at: now, sequence: sequence), self.currentEpoch == frameEpoch {
+                        self.onFrame?(result, CGSize(width: CVPixelBufferGetWidth(buffer),height: CVPixelBufferGetHeight(buffer)), [], nil)
+                    }
+                } catch { self.birdFlow.reset() }
+            }
+        }
         // Both paths drop frames while busy. Inference never blocks the visible preview.
         if renderSlot.wait(timeout: .now()) == .success {
             renderQueue.async {
@@ -92,10 +122,11 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         lastFrame = now
         queue.async {
             defer { self.inferenceSlot.signal() }
-            self.processFrame(buffer, at: now)
+            self.processFrame(buffer, at: now, epoch: frameEpoch, sequence: sequence)
         }
     }
-    private func processFrame(_ buffer: CVPixelBuffer, at now: Double) {
+    private func processFrame(_ buffer: CVPixelBuffer, at now: Double, epoch: UInt64, sequence: UInt64) {
+        guard currentEpoch == epoch else { return }
         let aspect = CGFloat(CVPixelBufferGetWidth(buffer)) / CGFloat(CVPixelBufferGetHeight(buffer))
         lastFrameSize = CGSize(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer))
         if abs(aspect - lastAspect) > 0.1 { tracker.reset(); lastAspect = aspect }
@@ -103,7 +134,7 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         var detections: [SubjectDetection] = []
         if settings.autofocus != .manual && settings.subjects != .none {
             do {
-                if let model {
+                if settings.subjects != .birds, let model {
                     let request = VNCoreMLRequest(model: model)
                     request.imageCropAndScaleOption = .scaleFill
                     try handler.perform([request])
@@ -120,9 +151,12 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                 if settings.eyes != .off && (settings.subjects == .automatic || settings.subjects == .animals) {
                     try addAnimalEyes(handler, to: &detections)
                 }
-                if settings.subjects == .automatic || settings.subjects == .animals, let birdModel {
+                if [.automatic, .animals, .birds].contains(settings.subjects), let birdModel {
                     do {
-                        let poses = try birdModel.observations(buffer, at: now)
+                        let selected = tracker.result.locked ? tracker.result.selected : nil
+                        let region = selected?.kind == .bird ? selected?.bounds : nil
+                        let poses = try birdModel.observations(buffer, at: now, region: region,
+                                                              padding: region == nil ? 1 : tracker.result.missing ? 1.7 : 1.2)
                         let birds = poses.filter { $0.timestamp == now }.map(\.detection)
                         // Replace duplicate body detections; identity remains tied to observed body geometry.
                         detections.removeAll { old in old.kind == .bird && birds.contains {
@@ -141,25 +175,40 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
         // A slow prediction must not move a lens or mutate identity using an old scene.
         let finishedAt = CACurrentMediaTime()
+        guard currentEpoch == epoch else { return }
         guard FrameFreshness.isCurrent(now, now: finishedAt) else {
             // Age the existing lock with no observations: a perpetually slow model must
             // not leave an old blue box and lens lock alive forever.
             var expired = tracker.update([], at: finishedAt, settings: settings)
             expired.observedAt = finishedAt
-            publish(expired, histogram: [])
+            expired.frameSequence = sequence
+            snapshotLock.lock(); trackingSeed = nil; snapshotLock.unlock()
+            publish(expired, histogram: [], epoch: epoch)
             return
         }
         var result = tracker.update(detections, at: now, settings: settings)
         result.observedAt = now
+        result.frameSequence = sequence
+        result.epoch = epoch
+        result.configuration = FocusConfiguration(settings)
+        snapshotLock.lock()
+        if self.epoch == epoch {
+            if !result.locked { trackingSeed = nil }
+            else if !result.missing, result.selected?.kind == .bird {
+                trackingSeed = BirdFrameTracker.Seed(result: result, buffer: buffer, time: now, epoch: epoch, sequence: sequence, settings: settings)
+            }
+        }
+        snapshotLock.unlock()
         let original = CIImage(cvPixelBuffer: buffer)
         let scale = min(1, 960 / original.extent.width)
         let image = original.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         let histogram = settings.histogram ? luminanceHistogram(image) : []
-        publish(result, histogram: histogram)
+        publish(result, histogram: histogram, epoch: epoch)
     }
-    private func publish(_ result: TrackingResult, histogram: [Float]) {
+    private func publish(_ result: TrackingResult, histogram: [Float], epoch: UInt64? = nil) {
         var snapshot = result
         snapshot.configuration = FocusConfiguration(settings)
+        snapshot.epoch = epoch ?? currentEpoch
         onFrame?(snapshot, lastFrameSize, histogram, nil)
     }
     func finishPreview() { renderSlot.signal() }

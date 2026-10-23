@@ -2,7 +2,12 @@ import CoreML
 import CoreImage
 
 protocol BirdPosePredicting {
-    func observations(_ buffer: CVPixelBuffer, at timestamp: Double) throws -> [BirdPoseObservation]
+    func observations(_ buffer: CVPixelBuffer, at timestamp: Double, region: CGRect?, padding: CGFloat) throws -> [BirdPoseObservation]
+}
+extension BirdPosePredicting {
+    func observations(_ buffer: CVPixelBuffer, at timestamp: Double) throws -> [BirdPoseObservation] {
+        try observations(buffer, at: timestamp, region: nil, padding: 1)
+    }
 }
 
 /// Loads only a build-time, provenance-checked bundle. No runtime downloads/imports.
@@ -21,7 +26,9 @@ final class BirdPoseModel: BirdPosePredicting {
             throw NSError(domain: "BirdModel", code: 2, userInfo: [NSLocalizedDescriptionKey: "鳥眼模型輸入／輸出不符已驗證版本。"])
         }
     }
-    func observations(_ buffer: CVPixelBuffer, at timestamp: Double) throws -> [BirdPoseObservation] {
+    func observations(_ buffer: CVPixelBuffer, at timestamp: Double, region: CGRect?, padding: CGFloat) throws -> [BirdPoseObservation] {
+        // Legacy640 is retained for full-frame compatibility only; never decode an ONNX320 crop as640.
+        guard region == nil else { throw NSError(domain: "BirdModel", code: 3, userInfo: [NSLocalizedDescriptionKey: "舊版640模型不支援局部辨識"] ) }
         var target: CVPixelBuffer?
         let status = CVPixelBufferCreate(kCFAllocatorDefault, 640, 640, kCVPixelFormatType_32BGRA,
                                         [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &target)

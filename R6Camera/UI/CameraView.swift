@@ -136,7 +136,7 @@ struct CameraView: View {
                         Text(String(format: "實際 %.1f 張/s", fps)).font(.caption2).monospacedDigit()
                     }
                     if let requested = camera.burstRequestFPS, camera.settings.drive.isBurst {
-                        Text(String(format: "請求 ≤%.1f", requested)).font(.caption2).monospacedDigit()
+                        Text(String(format: "目標 %.1f", camera.burstStableTarget ?? requested)).font(.caption2).monospacedDigit()
                     }
                 }
                 Spacer(minLength: 0)

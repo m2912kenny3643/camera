@@ -1,0 +1,19 @@
+{
+  "release_kind": "functional-test",
+  "model": {
+    "file": "R6Camera/Resources/BirdEyePose.onnx",
+    "sha256": "350f370aac45ec120bb73434eb0add0446a5f327344c65b03a633229dc2c551b",
+    "bytes": 10802648,
+    "source": "user-provided NeoFocus-0.5.0-pro.apk/assets/bird-eye.onnx"
+  },
+  "rights": {
+    "route": "AGPL-3.0-or-later",
+    "decision": "docs/research/android-bird-0.7.md",
+    "notices": [
+      "R6Camera/Resources/BIRD-MODEL-CARD.md",
+      "R6Camera/Resources/LICENSE-ULTRALYTICS.txt"
+    ],
+    "source_url": "https://github.com/m2912kenny3643/camera"
+  },
+  "formal_qualification": false
+}

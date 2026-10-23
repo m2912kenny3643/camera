@@ -57,18 +57,9 @@ struct CameraControlEditor: View {
                     Stepper("連拍張數  \(draft.timerCount)", value: $draft.timerCount, in: 2...10).font(.system(size: 13)).padding(.horizontal, 20).accessibilityIdentifier("drive.timerCount").accessibilityValue(String(draft.timerCount))
                 }
                 if control == .drive && [.burstHighPlus, .burst].contains(draft.drive) {
-                    HStack(spacing: 6) {
-                        Text("H+ 請求上限").font(.system(size: 11))
-                        ForEach(BurstRateTrial.allCases, id: \.rawValue) { trial in
-                            Button {
-                                draft.burstRateTrial = trial
-                            } label: {
-                                Text(trial.label).font(.system(size: 11)).padding(6)
-                                    .overlay(Rectangle().stroke(draft.burstRateTrial == trial ? Color.cyan : .gray))
-                            }.accessibilityIdentifier("drive.rate.\(trial.rawValue)")
-                                .accessibilityValue(draft.burstRateTrial == trial ? "已選取" : "未選取")
-                        }
-                    }.padding(.horizontal, 10)
+                    Text("穩定節奏優先；未校準採保守上限。MENU → 設定 → 連拍穩定速度校準")
+                        .font(.system(size: 11)).foregroundStyle(.yellow).padding(.horizontal, 12)
+                        .accessibilityIdentifier("drive.calibrationHint")
                 }
             } else {
                 Text(draft.program == .auto ? "選擇 P／Tv／M／Fv 可調整" : "手動 ISO 的 M 模式顯示測光偏差").font(.system(size: 14)).frame(maxWidth: .infinity, minHeight: 54)

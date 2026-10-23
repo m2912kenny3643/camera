@@ -23,7 +23,18 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     private var captureCancellation: CaptureCancellation?
     private var burstMeasurement: CaptureCancellation?
     private var burstDiagnostics: BurstDiagnostics?
+    private let calibrationStore = BurstCalibrationStore()
+    private var calibration: BurstCalibration?
+    private var calibrationMeasurement: CaptureCancellation?
+    private var calibrationConsumed: CaptureCancellation?
+    private var measurementKey: String?
+    private var lensIdentifier = "unknown"
+    @Published private(set) var calibrationStatus = "未校準：使用保守連拍上限"
+    @Published private(set) var burstStableTarget: Double?
+    @Published private(set) var isCalibrating = false
     private var frameFreshness = FrameFreshness() // main queue; reject delayed/out-of-order inference callbacks.
+    private var lastVisionEpoch: UInt64?
+    private var lastVisionSequence: UInt64?
     private var zoomCommand = 0 // main queue; latest command reconciles hardware clamping.
     private var configured = false
     private var referenceZoom: CGFloat = 1
@@ -107,6 +118,14 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         vision.onFrame = { [weak self] result, size, histogram, styled in
             DispatchQueue.main.async {
                 guard let self else { return }
+                if let epoch = result.epoch {
+                    guard epoch == self.vision.currentEpoch else { return }
+                    if self.lastVisionEpoch != epoch { self.lastVisionSequence = nil; self.lastVisionEpoch = epoch }
+                    if let sequence = result.frameSequence {
+                        guard self.lastVisionSequence.map({ sequence > $0 }) ?? true else { return }
+                        self.lastVisionSequence = sequence
+                    }
+                }
                 guard result.configuration == FocusConfiguration(self.settings) else { return }
                 if let timestamp = result.observedAt,
                    !self.frameFreshness.accept(timestamp, now: CACurrentMediaTime()) { return }
@@ -139,7 +158,11 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             DispatchQueue.main.async { self?.error = message }
         }
         vision.onBirdStatus = { [weak self] message in
-            DispatchQueue.main.async { self?.birdStatus = message }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.birdStatus = message
+                if !message.contains("已載入"), self.isCalibrating { self.cancelBurstCalibration(); self.calibrationStatus = "鳥眼推論中斷，校準結果不保存" }
+            }
         }
         notificationTokens.append(NotificationCenter.default.addObserver(
             forName: AVCaptureSession.wasInterruptedNotification, object: session, queue: .main
@@ -316,6 +339,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             self.zoomRange = minimum...max(minimum, maximum)
             self.supportsRAW = raw
             self.photoResolution = "\(dimensions.width) × \(dimensions.height)"
+            self.lensIdentifier = device.uniqueID
             self.requestedPhotoPixels = Int64(dimensions.width) * Int64(dimensions.height)
             self.responsiveCapture = responsive
             self.supportsNativeZoom = nativeZoom
@@ -339,6 +363,10 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     func update(_ transform: (inout CameraSettings) -> Void) {
         let previous = settings
         transform(&settings)
+        if previous != settings, captureTask != nil { cancelCapture() }
+        if previous != settings, isCalibrating {
+            calibration = nil; isCalibrating = false; calibrationStatus = "設定已變更，校準中止"
+        }
         if previous.effective.autofocus != settings.effective.autofocus || previous.effective.subjects != settings.effective.subjects {
             holdTrackedFocus()
         }
@@ -444,7 +472,12 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     }
     func setZoom(_ zoom: CGFloat) {
         let factor = min(zoomRange.upperBound, max(zoomRange.lowerBound, zoom))
+        if abs(settings.zoom-factor) > 0.001 {
+            cancelCapture()
+            if isCalibrating { calibration = nil; isCalibrating = false; calibrationStatus = "縮放已變更，校準中止" }
+        }
         settings.zoom = factor
+        vision.reset()
         store.save(settings)
         // Draw from touch immediately; hardware KVO must not animate the dial backwards.
         self.zoom = factor
@@ -616,20 +649,56 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             }
         }
     }
+    private func calibrationKey(_ snapshot: CameraSettings, exposure: Double) -> String {
+        BurstCalibrationKey.make(lens: lensIdentifier, os: ProcessInfo.processInfo.operatingSystemVersionString,
+                                 settings: snapshot, pixels: requestedPhotoPixels, exposure: exposure,
+                                 model: birdStatus.contains("已載入") ? BirdPoseDecoder.androidSHA256 : "bird-unavailable")
+    }
+    func startBurstCalibration() {
+        guard captureTask == nil, pendingPhotos == 0, isRunning, settings.drive.isBurst,
+              settings.effective.autofocus != .manual, settings.effective.eyes != .off,
+              settings.effective.subjects.accepts(.bird), birdStatus.contains("已載入") else {
+            calibrationStatus = "請開啟鳥眼、自動對焦與連拍，並等候相機及存檔就緒"; return
+        }
+        var snapshot = settings.effective; snapshot.burstRateTrial = .fastest
+        let exposure = snapshot.controlsShutter ? snapshot.shutterSeconds : actualShutter
+        let profile = BurstProfile(settings: snapshot, responsive: responsiveCapture, photoPixels: requestedPhotoPixels, exposure: exposure)
+        calibration = BurstCalibration(key: calibrationKey(snapshot, exposure: exposure), drive: snapshot.drive, maximum: profile.requestFPS)
+        calibrationStatus = calibration!.status; isCalibrating = true
+    }
+    func cancelBurstCalibration() {
+        cancelCapture(); calibration = nil; isCalibrating = false
+        calibrationStatus = "已結束校準；未通過的速度不會保存"
+    }
     func beginBurst() {
         guard settings.drive.isBurst, isRunning, captureEnabled, captureTask == nil else { shutter(); return }
+        // Do not discard diagnostics for accepted photos still being stored.
+        guard burstDiagnostics?.hasPendingStorage != true else { burstLimitReason = "等待上一段照片存檔"; return }
         let snapshot = settings.effective
         let cancellation = CaptureCancellation()
         captureCancellation = cancellation
         burstFPS = nil; burstIntervals = []; lastBurstExposureTime = nil
         burstMeasurement = cancellation
         let exposure = snapshot.controlsShutter ? snapshot.shutterSeconds : actualShutter
-        let profile = BurstProfile(settings: snapshot, responsive: responsiveCapture,
+        let key = calibrationKey(snapshot, exposure: exposure)
+        measurementKey = key
+        var capability = snapshot; capability.burstRateTrial = .fastest
+        let profile = BurstProfile(settings: capability, responsive: responsiveCapture,
                                    photoPixels: requestedPhotoPixels, exposure: exposure)
-        burstRequestFPS = profile.requestFPS; burstLimitReason = profile.reason
+        if let current = calibration, current.key != key {
+            calibration = nil; isCalibrating = false; calibrationStatus = "配置已變更，請重新開始校準"
+        }
+        let saved = calibrationStore.rate(for: key)
+        let trial = calibration?.verifiedFPS == nil && calibration?.failed == false ? calibration?.rate : nil
+        calibrationMeasurement = trial == nil ? nil : cancellation
+        let target = min(trial ?? saved ?? snapshot.drive.fps, profile.requestFPS)
+        burstStableTarget = target
+        burstRequestFPS = target
+        let initialReason = trial != nil ? "校準測試；會實際拍照存檔" : saved == nil ? "未校準：保守上限" : profile.reason
+        burstLimitReason = initialReason
         burstDiagnostics = BurstDiagnostics(mode: snapshot.drive.code, format: snapshot.format.rawValue,
                                             requestedPixels: requestedPhotoPixels, exposure: exposure,
-                                            requestFPS: profile.requestFPS,
+                                            requestFPS: target,
                                             device: "\(UIDevice.current.model) · \(ProcessInfo.processInfo.operatingSystemVersionString)",
                                             startedAt: ProcessInfo.processInfo.systemUptime)
         burstReportText = nil
@@ -640,31 +709,43 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                 self.burstDiagnostics?.stop(at: ProcessInfo.processInfo.systemUptime)
                 self.publishBurstReport()
             }
-            var cadence = BurstCadence(fps: profile.requestFPS,
-                                       exposure: exposure,
-                                       now: ProcessInfo.processInfo.systemUptime)
+            var cadence = BurstCadence(fps: target, exposure: exposure, now: ProcessInfo.processInfo.systemUptime)
             while !Task.isCancelled && !cancellation.isCancelled && self.isRunning && self.captureEnabled {
                 if ProcessInfo.processInfo.systemUptime >= cadence.nextDeadline {
+                    let previousRate = cadence.effectiveFPS
                     let attempt = await self.capture(snapshot, cancellation: cancellation)
-                    let accepted = attempt.accepted
-                    _ = cadence.admit(at: ProcessInfo.processInfo.systemUptime, ready: accepted)
-                    self.captureBusy = !accepted
-                    if !accepted {
+                    _ = cadence.admit(at: ProcessInfo.processInfo.systemUptime, ready: attempt.accepted)
+                    self.captureBusy = !attempt.accepted
+                    if cadence.effectiveFPS < previousRate - 0.000001 {
+                        self.burstDiagnostics?.reduced(to: cadence.effectiveFPS)
+                        self.burstStableTarget = cadence.effectiveFPS
+                    }
+                    if !attempt.accepted {
                         self.burstLimitReason = attempt.reason
                         if let reason = attempt.reason { self.burstDiagnostics?.blocked(reason) }
-                    }
-                    else if cadence.interval > 1 / profile.requestFPS * 1.2 {
-                        self.burstLimitReason = "拍攝／處理降速"
-                    } else { self.burstLimitReason = profile.reason }
+                    } else { self.burstLimitReason = cadence.hasReducedRate ? "持續受阻降檔；本次長按不升速" : initialReason }
                 }
-                do { try await Task.sleep(nanoseconds: 10_000_000) } catch { break }
+                do { try await Task.sleep(nanoseconds: 5_000_000) } catch { break }
             }
         }
     }
     func cancelCapture() { captureCancellation?.cancel(); captureTask?.cancel() }
     private func publishBurstReport() {
-        guard burstDiagnostics?.stoppedAt != nil else { return }
-        burstReportText = burstDiagnostics?.reportText()
+        guard let report = burstDiagnostics, report.stoppedAt != nil else { return }
+        burstReportText = report.reportText()
+        guard !report.hasPendingStorage, let token = burstMeasurement,
+              calibrationMeasurement === token, calibrationConsumed !== token else { return }
+        calibrationConsumed = token
+        guard var current = calibration, current.key == measurementKey,
+              birdStatus.contains("已載入"), current.key == calibrationKey(settings.effective,
+                  exposure: settings.effective.controlsShutter ? settings.effective.shutterSeconds : actualShutter) else {
+            calibration = nil; isCalibrating = false; calibrationStatus = "量測配置已變更，結果不保存"; return
+        }
+        current.consume(report); calibration = current
+        calibrationStatus = current.status
+        if let rate = current.verifiedFPS {
+            calibrationStore.save(rate, for: current.key); isCalibrating = false
+        } else if current.failed { isCalibrating = false }
     }
     private func makePhotoSettings(_ settings: CameraSettings) throws -> (AVCapturePhotoSettings, UTType) {
         let raw = settings.format == .raw ? photoOutput.availableRawPhotoPixelFormatTypes.first : nil

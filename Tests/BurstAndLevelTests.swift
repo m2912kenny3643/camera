@@ -37,16 +37,54 @@ final class BurstAndLevelTests: XCTestCase {
         XCTAssertEqual(cadence.nextDeadline, 1.125)
         XCTAssertFalse(cadence.admit(at: 1.01, ready: true))
     }
-    func testSustainedPressureSlowsAndStableAdmissionsRecoverWithoutOverspeed() {
+    func testSustainedPressureSlowsAndStableAdmissionsNeverRecoverDuringHold() {
         var cadence = BurstCadence(fps: 12, exposure: 0.001, now: 0)
         XCTAssertTrue(cadence.admit(at: 0, ready: true))
         for _ in 0..<3 { XCTAssertFalse(cadence.admit(at: cadence.nextDeadline, ready: false)) }
         let reduced = cadence.interval
-        XCTAssertGreaterThan(reduced, 1.0 / 12)
+        XCTAssertEqual(reduced, 0.1, accuracy: 0.000001)
+        XCTAssertTrue(cadence.hasReducedRate)
         XCTAssertTrue(cadence.admit(at: cadence.nextDeadline, ready: true))
         for _ in 0..<72 { XCTAssertTrue(cadence.admit(at: cadence.nextDeadline, ready: true)) }
-        XCTAssertEqual(cadence.interval, cadence.minimumInterval, accuracy: 0.000001)
+        XCTAssertEqual(cadence.interval, reduced, accuracy: 0.000001)
+        XCTAssertEqual(cadence.effectiveFPS, 10, accuracy: 0.000001)
         XCTAssertFalse(cadence.admit(at: cadence.nextDeadline - 0.001, ready: true))
+    }
+    func testFixedPhaseDoesNotAccumulateSchedulerJitter() {
+        var cadence = BurstCadence(fps: 10, exposure: 0.001, now: 0)
+        for i in 0..<100 {
+            let scheduled = Double(i) * 0.1
+            XCTAssertEqual(cadence.nextDeadline, scheduled, accuracy: 0.000001)
+            XCTAssertTrue(cadence.admit(at: scheduled + 0.005, ready: true))
+        }
+        XCTAssertEqual(cadence.nextDeadline, 10, accuracy: 0.000001)
+        XCTAssertFalse(cadence.hasReducedRate)
+    }
+    func testLateAndBlockedSlotsDoNotRetryEarlyOrCatchUp() {
+        var cadence = BurstCadence(fps: 8, exposure: 0.001, now: 0)
+        XCTAssertTrue(cadence.admit(at: 0, ready: true))
+        XCTAssertFalse(cadence.admit(at: 0.125, ready: false))
+        XCTAssertEqual(cadence.nextDeadline, 0.25, accuracy: 0.000001)
+        XCTAssertFalse(cadence.admit(at: 0.2, ready: true))
+        XCTAssertEqual(cadence.blocked, 1)
+        XCTAssertTrue(cadence.admit(at: 0.30, ready: true))
+        XCTAssertEqual(cadence.nextDeadline, 0.425, accuracy: 0.000001)
+        XCTAssertFalse(cadence.admit(at: 0.375, ready: true))
+        XCTAssertFalse(cadence.admit(at: .infinity, ready: true))
+        XCTAssertFalse(cadence.admit(at: .nan, ready: true))
+    }
+    func testSustainedPressureUsesDiscreteLadderAndNeverViolatesExposureFloor() {
+        var cadence = BurstCadence(fps: 12, exposure: 0.001, now: 0)
+        for expected in [10.0, 8, 6, 4, 2, 1] {
+            for _ in 0..<3 { XCTAssertFalse(cadence.admit(at: cadence.nextDeadline, ready: false)) }
+            XCTAssertEqual(cadence.effectiveFPS, expected, accuracy: 0.000001)
+        }
+        for _ in 0..<6 { XCTAssertFalse(cadence.admit(at: cadence.nextDeadline, ready: false)) }
+        XCTAssertEqual(cadence.effectiveFPS, 1)
+        var longExposure = BurstCadence(fps: 12, exposure: 2, now: 0)
+        for _ in 0..<6 { XCTAssertFalse(longExposure.admit(at: longExposure.nextDeadline, ready: false)) }
+        XCTAssertEqual(longExposure.interval, 2.03, accuracy: 0.000001)
+        XCTAssertFalse(longExposure.hasReducedRate)
     }
     func testTrialRatesMaintainTenSecondCadenceAndExposureFloor() {
         for fps in [4.0, 6, 8, 10, 12] {

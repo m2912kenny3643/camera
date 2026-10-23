@@ -24,6 +24,11 @@ struct BurstDiagnostics: Codable {
     private(set) var samples: [Sample] = []
     private(set) var totalRequests = 0
     private(set) var truncated = false
+    private(set) var reducedRates: [Double] = []
+    mutating func reduced(to rate: Double) {
+        if reducedRates.last != rate { reducedRates.append(rate) }
+    }
+    var hasPendingStorage: Bool { samples.contains { $0.storedAt == nil } }
 
     mutating func requested(id: Int64, at time: Double) {
         totalRequests += 1
@@ -66,12 +71,13 @@ struct BurstDiagnostics: Codable {
     /// This is one measured hold, never automatic device/format qualification.
     var tenSecondCadencePassed: Bool {
         guard let stoppedAt, stoppedAt - startedAt >= 10,
-              !truncated, samples.count >= Int(requestFPS * (stoppedAt - startedAt) * 0.8),
+              !truncated, reducedRates.isEmpty, samples.count >= Int(ceil(requestFPS * (stoppedAt - startedAt) * 0.9)),
               samples.allSatisfy({ $0.capturedAt != nil && $0.succeeded == true }),
               let first = samples.compactMap(\.capturedAt).min(),
               let last = samples.compactMap(\.capturedAt).max(),
               first - startedAt <= max(0.5, 1.2 / requestFPS),
               stoppedAt - last <= max(0.5, 1.2 / requestFPS),
+              (captureIntervals.max() ?? .infinity) <= 2 / requestFPS,
               let deviation = p95RelativeDeviation else { return false }
         return deviation <= 0.2
     }
