@@ -166,7 +166,9 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         UIDevice.current.isBatteryMonitoringEnabled = true
         vision.onFrame = { [weak self] result, size, histogram, styled in
             DispatchQueue.main.async {
-                guard let self else { return }
+                // The simulator fixture has its own tracker. A queued real-pipeline
+                // configuration reset must not overwrite its newly acquired point.
+                guard let self, !self.isUIFixture else { return }
                 guard result.configuration == FocusConfiguration(self.settings),
                       self.frameGate.accept(result, currentEpoch: self.vision.currentEpoch, now: CACurrentMediaTime()) else { return }
                 if self.styledFrame == nil { self.frameSize = size }

@@ -294,6 +294,7 @@ private struct TrackingOverlay: View {
             switch FocusIndicator.resolve(result, settings: settings) {
             case .point(let point):
                 Rectangle().stroke(Color.blue, lineWidth: 1.5).frame(width: 36, height: 36).position(ViewfinderGeometry.display(point, imageAspect: aspect, size: g.size))
+                    .accessibilityElement(children: .ignore)
                     .accessibilityIdentifier("focus.commandPoint").accessibilityLabel("指定對焦位置，未確認合焦")
             case .subject(let rect, let selected):
                 Rectangle().stroke(selected ? Color.blue : Color.white, lineWidth: 1.5)
