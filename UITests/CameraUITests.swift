@@ -28,6 +28,11 @@ final class CameraUITests: XCTestCase {
         center.press(forDuration: 0.15, thenDragTo: photo.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.5)))
         XCTAssertNotEqual(frame.value as? String, before)
         capture("11-Flexible-area-moved")
+        let movedArea = frame.value as? String
+        let oldZoom = app.buttons["zoom.open"].label
+        photo.pinch(withScale: 1.4, velocity: 1)
+        XCTAssertNotEqual(app.buttons["zoom.open"].label, oldZoom)
+        XCTAssertEqual(frame.value as? String, movedArea, "Two-finger zoom must not move the focus region")
         app.buttons["hud.mode"].tap(); app.buttons["option.A+"].tap(); app.buttons["editor.confirm"].tap()
         XCTAssertEqual(area.value as? String, "全區域自動對焦")
         app.buttons["hud.mode"].tap(); app.buttons["option.M"].tap(); app.buttons["editor.confirm"].tap()
@@ -89,7 +94,7 @@ final class CameraUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["zoom.wheel"].exists)
         capture("Hardware-return-to-shooting-page")
     }
-    func testExperimentalHardwareShutterDefaultsOffAndCanBeRestored() {
+    func testExperimentalHardwareShutterDefaultsOnAndCanBeRestored() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchEnvironment["R6_UI_TESTING"] = "1"
@@ -99,13 +104,13 @@ final class CameraUITests: XCTestCase {
         app.buttons["menu.tab.3"].tap()
         let setting = app.buttons["hardwareShutter.experimental"]
         XCTAssertTrue(setting.waitForExistence(timeout: 5))
-        XCTAssertEqual(setting.value as? String, "關閉")
-        setting.tap()
         XCTAssertEqual(setting.value as? String, "開啟")
+        setting.tap()
+        XCTAssertEqual(setting.value as? String, "關閉")
         XCTAssertTrue(app.buttons["hardwareShutter.shareReport"].exists)
         capture("Hardware-shutter-experimental-settings")
         setting.tap()
-        XCTAssertEqual(setting.value as? String, "關閉")
+        XCTAssertEqual(setting.value as? String, "開啟")
         app.buttons["menu.close"].tap()
         XCTAssertTrue(app.buttons["MENU"].waitForExistence(timeout: 5))
     }
