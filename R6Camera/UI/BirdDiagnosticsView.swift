@@ -82,7 +82,7 @@ struct BirdDiagnosticsView: View {
 }
 
 private enum BirdDiagnosticCase: String, CaseIterable, Identifiable {
-    case eagle, head, body, frontal, distant
+    case eagle, head, body, frontal, distant, background
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -91,9 +91,10 @@ private enum BirdDiagnosticCase: String, CaseIterable, Identifiable {
         case .body: return "人工遮眼／身體"
         case .frontal: return "正面雙眼"
         case .distant: return "遠距多鳥"
+        case .background: return "無鳥背景裁切"
         }
     }
-    var fileExtension: String { self == .eagle ? "png" : "jpg" }
+    var fileExtension: String { self == .eagle || self == .background ? "png" : "jpg" }
     var isArtificial: Bool { self == .head || self == .body }
 }
 

@@ -151,6 +151,16 @@
       "synthetic_occlusion": true,
       "independent_accuracy_sample": false,
       "mask_radius_fraction": 0.07
+    },
+    {
+      "file": "BirdFixture-background.png",
+      "derived_from": "eagle.png",
+      "author": "Dayane Machado",
+      "license": "CC0-1.0",
+      "operation": "Original photo background crop [0,0,510,800], bird excluded; not independent accuracy sample",
+      "sha256": "1798613fb323b1785bc4862f4bc0f568a02557de1bbc8869d3b70a6566603b3e",
+      "bytes": 108542,
+      "independent_accuracy_sample": false
     }
   ]
 }

@@ -102,7 +102,7 @@ final class CameraUITests: XCTestCase {
         if !open.isHittable { app.swipeUp() }
         XCTAssertTrue(open.waitForExistence(timeout: 5)); open.tap()
         let state = app.staticTexts["bird.test.status"]
-        for (sample, expected) in [("eagle","眼睛"),("head","頭部"),("body","身體")] {
+        for (sample, expected) in [("eagle","眼睛"),("head","頭部"),("body","身體"),("frontal","眼睛"),("distant","未辨識"),("background","未辨識")] {
             let button = app.buttons["bird.test.case.\(sample)"]
             let ready = NSPredicate(format: "enabled == true")
             expectation(for: ready, evaluatedWith: button); waitForExpectations(timeout: 30)
