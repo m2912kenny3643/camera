@@ -54,10 +54,26 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     private var hardwareFocusAfterReturn = false
     @Published private(set) var capturePageReturnRequest: UInt64 = 0
     @Published private(set) var hardwareReturningToCapture = false
-    @Published private(set) var hardwareControlsSupported = false
+    @Published private(set) var hardwareControlsSupported = false { didSet { syncHardwareReceiver() } }
     @Published private(set) var hardwareControlStatus = "實驗性兩段硬體快門未啟用"
     weak var previewLayer: AVCaptureVideoPreviewLayer?
     weak var presentationWindow: UIWindow?
+    let hardwareReceiver = HardwareCaptureReceiver()
+    var sceneIsActive = true {
+        didSet {
+            if !sceneIsActive { cancelCapture(reason: "scene-inactive") }
+            syncHardwareReceiver()
+        }
+    }
+    private var twoStageAvailable: Bool { settings.experimentalHardwareShutter && hardwareControlsSupported }
+    func bindHardwareWindow(_ window: UIWindow) {
+        presentationWindow = window
+        if hardwareReceiver.bind(window) { resetHardwareShutter(reason: "receiver-window-changed") }
+        syncHardwareReceiver()
+    }
+    private func syncHardwareReceiver() {
+        hardwareReceiver.setEnabled(sceneIsActive && isRunning && (captureEnabled || twoStageAvailable))
+    }
 
     @Published var fixedRotation: CGFloat = 0
     @Published var uiFixture: UIImage?
@@ -77,13 +93,13 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     }
 
     @Published var settings: CameraSettings {
-        didSet { if oldValue != settings { resetHardwareShutter(preservingOverlay: true, reason: "settings-changed") } }
+        didSet { if oldValue != settings { resetHardwareShutter(preservingOverlay: true, reason: "settings-changed") }; syncHardwareReceiver() }
     }
     @Published var isRunning = false {
-        didSet { if !isRunning { controlsActive = false; cancelCapture(reason: "session-not-running") } }
+        didSet { if !isRunning { controlsActive = false; cancelCapture(reason: "session-not-running") }; syncHardwareReceiver() }
     }
     @Published var captureEnabled = true {
-        didSet { if !captureEnabled { cancelCapture(reason: "capture-page-covered") } }
+        didSet { if !captureEnabled { cancelCapture(reason: "capture-page-covered") }; syncHardwareReceiver() }
     }
     @Published var error: String?
     @Published var status = "正在啟動相機"
@@ -128,6 +144,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         let restored = SettingsStore().load() ?? CameraSettings()
         settings = restored
         super.init()
+        hardwareReceiver.onInput = { [weak self] input, time in self?.hardwareInput(input, at: time) }
         UIDevice.current.isBatteryMonitoringEnabled = true
         vision.onFrame = { [weak self] result, size, histogram, styled in
             DispatchQueue.main.async {
@@ -200,7 +217,6 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     private func prepareUIFixture() {
         guard uiFixture == nil else { return }
         settings = CameraSettings(); settings.program = .manual; settings.grid = false
-        settings.experimentalHardwareShutter = hardwareReturnFixture
         settings.histogram = false; settings.shutterSeconds = 1.0 / 1000; settings.iso = 400
         actualShutter = settings.shutterSeconds; actualISO = 400; battery = 0.8
         frameSize = CGSize(width: 1200, height: 900); focalAtOne = nil
@@ -218,7 +234,10 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         #if targetEnvironment(simulator)
         DispatchQueue.main.async {
             self.status = "模擬器 UI 檢視 · 未啟動鏡頭"
-            if self.isUIFixture { self.prepareUIFixture() }
+            if self.isUIFixture {
+                self.prepareUIFixture()
+                if self.hardwareReturnFixture { self.hardwareControlsSupported = true; self.isRunning = true }
+            }
         }
         #else
         Task { @MainActor in
@@ -383,8 +402,11 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         if previous != settings, isCalibrating {
             calibration = nil; isCalibrating = false; calibrationStatus = "設定已變更，校準中止"
         }
-        if previous.effective.autofocus != settings.effective.autofocus || previous.effective.subjects != settings.effective.subjects {
+        if FocusConfiguration(previous) != FocusConfiguration(settings) {
             holdTrackedFocus()
+            tracking = TrackingResult(); singleFocused = false
+            fixtureTracker.reset()
+            if isUIFixture { tracking = fixtureTracker.update(fixtureDetections, at: 0, settings: settings.effective) }
         }
         store.save(settings)
         let snapshot = settings.effective
@@ -534,13 +556,24 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     }
     func tap(at imagePoint: CGPoint) {
         guard isRunning || isUIFixture, settings.effective.autofocus != .manual else { return }
+        guard settings.effective.focusArea.contains(imagePoint) else { return }
         singleFocused = false
         if isUIFixture {
-            fixtureTracker.select(at: imagePoint, eyes: settings.effective.eyes, mode: settings.effective.autofocus)
+            fixtureTracker.select(at: imagePoint, eyes: settings.effective.eyes, mode: settings.effective.autofocus, area: settings.effective.focusArea)
             tracking = fixtureTracker.result
         } else { vision.select(imagePoint) }
     }
-    func autofocus() { tap(at: CGPoint(x: 0.5, y: 0.5)) }
+    func autofocus() {
+        guard settings.effective.autofocus != .manual else { return }
+        if isUIFixture {
+            fixtureTracker.acquire(settings: settings.effective, at: 0)
+            tracking = fixtureTracker.result
+        } else { vision.acquire() }
+    }
+    func moveFocusArea(to point: CGPoint) {
+        guard settings.program != .auto, settings.effective.autofocus != .manual else { return }
+        update { $0.focusArea.move(to: point) }
+    }
     func unlockTracking() {
         if isUIFixture { fixtureTracker.unlock(); _ = fixtureTracker.update(fixtureDetections, at: 1, settings: settings); tracking = fixtureTracker.result }
         else { vision.unlock() }
@@ -556,6 +589,10 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         lastFocusPoint = CGPoint(x: -1, y: -1)
     }
     private func resumeSceneFocus() {
+        if settings.effective.focusArea.mode != .whole {
+            focusOnImagePoint(settings.effective.focusArea.center, single: false)
+            return
+        }
         sessionQueue.async {
             guard self.session.isRunning, self.appliedSettings.autofocus != .manual,
                   let device = self.device else { return }
@@ -971,7 +1008,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             return
         }
         guard session.supportsControls else {
-            publishHardwareControls(false, status: "此裝置不支援控制浮層；實驗快門不放行")
+            publishHardwareControls(false, status: "此裝置不支援控制浮層；取景頁使用一般硬體快門")
             return
         }
         session.setControlsDelegate(self, queue: .main)
@@ -988,7 +1025,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                 }
             }
             guard session.canAddControl(picker) else {
-                publishHardwareControls(false, status: "無法註冊對焦控制；實驗快門不放行")
+                publishHardwareControls(false, status: "無法註冊對焦控制；取景頁使用一般硬體快門")
                 return
             }
             session.addControl(picker)
@@ -1016,8 +1053,8 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         return String(decoding: data, as: UTF8.self)
     }
     func hardwareInput(_ input: HardwareShutter.Input, at time: Double = CACurrentMediaTime()) {
-        let experimental = settings.experimentalHardwareShutter
-        let available = isRunning && (experimental ? hardwareControlsSupported : captureEnabled)
+        let experimental = twoStageAvailable
+        let available = sceneIsActive && isRunning && (experimental || captureEnabled)
         guard time >= hardwareResetTime else {
             recordHardware(input, time: time, available: available,
                            decision: HardwareShutter.Decision(actions: [], reason: "stale-input-before-reset"))
@@ -1072,6 +1109,9 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
         hardwareRecords.append(HardwareShutterRecord(appVersion: "\(version) (\(build))", time: time, event: input.rawValue, source: "unknown",
             experimental: settings.experimentalHardwareShutter, available: available,
+            receiverAttached: hardwareReceiver.attached, receiverEnabled: hardwareReceiver.enabled,
+            receiverHost: hardwareReceiver.host, sceneActive: sceneIsActive, sessionRunning: isRunning,
+            page: hardwareReturningToCapture ? "returning" : captureEnabled ? "capture" : "covered",
             captureAllowed: captureEnabled && !hardwareReturningToCapture,
             captureTaskBusy: captureTask != nil, returningToCapture: hardwareReturningToCapture,
             pendingCapture: hardwareShutter.pendingCapture?.rawValue,
@@ -1110,7 +1150,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         isUIFixture && ProcessInfo.processInfo.environment["R6_UI_HARDWARE_RETURN_TEST"] == "1"
     }
     func simulateHardwareReturn() {
-        guard hardwareReturnFixture else { return }
+        guard hardwareReturnFixture, hardwareReceiver.enabled else { return }
         hardwareControlsSupported = true
         isRunning = true
         controlsActive = true

@@ -67,9 +67,10 @@ struct FocusConfiguration: Equatable {
     let mode: AutofocusMode
     let subjects: SubjectMode
     let eyes: EyePriority
+    let area: FocusArea
     init(_ settings: CameraSettings) {
         let effective = settings.effective
-        mode = effective.autofocus; subjects = effective.subjects; eyes = effective.eyes
+        mode = effective.autofocus; subjects = effective.subjects; eyes = effective.eyes; area = effective.focusArea
     }
 }
 
@@ -83,6 +84,7 @@ struct TrackingResult {
     var missing = false
     var lost = false
     var touchPoint: CGPoint?
+    var areaFocusPoint: CGPoint?
     var focusAction: FocusAction = .none
     var configuration: FocusConfiguration?
 }
@@ -98,8 +100,13 @@ struct SubjectTracker {
         self = SubjectTracker()
     }
     mutating func unlock() { reset(); result.focusAction = .scene }
-    mutating func select(at point: CGPoint, eyes: EyePriority = .automatic, mode: AutofocusMode = .servo) {
-        guard let subject = result.candidates.filter({ $0.bounds.contains(point) })
+    mutating func select(at point: CGPoint, eyes: EyePriority = .automatic, mode: AutofocusMode = .servo, area: FocusArea = FocusArea(), now: Double? = nil) {
+        guard mode != .manual, area.contains(point) else { return }
+        result.areaFocusPoint = nil
+        if let now, result.observedAt.map({ FrameFreshness.isCurrent($0, now: now) }) != true {
+            result.candidates = []; result.observedAt = nil
+        }
+        guard let subject = result.candidates.filter({ $0.bounds.contains(point) && area.contains($0.focusPoint(eyes)) })
             .min(by: { $0.bounds.area < $1.bounds.area }) else {
             result.selected = nil
             result.locked = false
@@ -116,13 +123,44 @@ struct SubjectTracker {
         result.touchPoint = nil
         result.focusAction = mode == .single ? .single(subject.focusPoint(eyes)) : .continuous(subject.focusPoint(eyes))
     }
+    /// Explicit half-press acquisition; unlocked white candidates never drive subject AF.
+    mutating func acquire(settings: CameraSettings, at now: Double) {
+        guard settings.autofocus != .manual else { reset(); return }
+        let area = settings.focusArea
+        if result.observedAt.map({ FrameFreshness.isCurrent($0, now: now) }) != true {
+            result.candidates = []
+            result.observedAt = nil // Center fallback is a control command, not a new observation.
+        }
+        let candidates = result.candidates.filter { area.contains($0.focusPoint(settings.eyes)) }
+        let target = candidates.sorted {
+            let first = area.acquisitionRank($0.focusPoint(settings.eyes)) ?? Int.max
+            let second = area.acquisitionRank($1.focusPoint(settings.eyes)) ?? Int.max
+            if (area.mode == .expanded || area.mode == .surround), first == 0 || second == 0,
+               first != second { return first == 0 }
+            return rank($0, center: area.center) > rank($1, center: area.center)
+        }.first
+        if let target {
+            result.selected = target; result.locked = true
+            result.missing = false; result.lost = false; result.touchPoint = nil; result.areaFocusPoint = nil
+            result.focusAction = settings.autofocus == .single ? .single(target.focusPoint(settings.eyes)) : .continuous(target.focusPoint(settings.eyes))
+        } else {
+            result.selected = nil; result.locked = false; result.missing = false; result.lost = false
+            result.touchPoint = nil; result.areaFocusPoint = area.center
+            result.focusAction = settings.autofocus == .single ? .single(area.center) : .continuous(area.center)
+        }
+    }
     mutating func update(_ detections: [SubjectDetection], at now: Double,
                          settings: CameraSettings) -> TrackingResult {
-        let candidates = detections.filter { settings.subjects.accepts($0.kind) && $0.confidence >= 0.35 }
+        let mayLeaveArea = result.locked && settings.autofocus == .servo && settings.focusArea.wholeAreaTracking
+        let candidates = detections.filter {
+            settings.subjects.accepts($0.kind) && $0.confidence >= 0.35 &&
+                (mayLeaveArea || settings.focusArea.contains($0.focusPoint(settings.eyes)))
+        }
         result.focusAction = .none
         result.candidates = candidates
+        result.observedAt = now
         if settings.autofocus == .manual { reset(); return result }
-        if result.touchPoint != nil { return result }
+        if result.touchPoint != nil || result.areaFocusPoint != nil { return result }
         if let previous = result.selected {
             let matches = candidates.filter { $0.kind == previous.kind }
                 .map { ($0, Self.associationScore(previous, $0)) }
@@ -168,14 +206,14 @@ struct SubjectTracker {
         // Scene AF has no candidate coordinates. Only explicit selection enables subject AF.
         result.focusAction = .scene
         result.lost = false
-        let best = candidates.max { rank($0) < rank($1) }
+        let best = candidates.max { rank($0, center: settings.focusArea.center) < rank($1, center: settings.focusArea.center) }
         if result.selected == nil {
             result.selected = best
             lastSeen = now
             result.missing = false
         } else if let best, let selected = result.selected,
                   Self.intersectionOverUnion(best.bounds, selected.bounds) < 0.1,
-                  rank(best) > rank(selected) * 1.4 {
+                  rank(best, center: settings.focusArea.center) > rank(selected, center: settings.focusArea.center) * 1.4 {
             if let old = challenger, old.kind == best.kind,
                Self.matchScore(old.bounds, best.bounds) > 0.15 {
                 if now - challengerSince >= (1.2 - settings.switchSensitivity) {
@@ -187,8 +225,8 @@ struct SubjectTracker {
         } else { challenger = nil }
         return result
     }
-    private func rank(_ detection: SubjectDetection) -> Double {
-        let distance = hypot(detection.bounds.midX - 0.5, detection.bounds.midY - 0.5)
+    private func rank(_ detection: SubjectDetection, center: CGPoint) -> Double {
+        let distance = hypot(detection.bounds.midX - center.x, detection.bounds.midY - center.y)
         return Double(detection.confidence) * Double(detection.bounds.area.squareRoot()) / (0.25 + distance)
     }
     static func intersectionOverUnion(_ a: CGRect, _ b: CGRect) -> CGFloat {

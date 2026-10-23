@@ -16,7 +16,7 @@ struct CameraSettingsView: View {
     private var pages: [[CameraControl]] {
         switch tab {
         case 0: return [[.format, .whiteBalance, .style, .drive, .exposure, .level], [.mode, .shutter, .iso, .kelvin, .lens], [.contrast, .saturation, .sharpness, .hue]]
-        case 1: return [[.autofocus, .subject, .eye, .stickiness, .sensitivity], [.manualFocus]]
+        case 1: return [[.autofocus, .area, .subject, .eye], [.stickiness, .sensitivity, .manualFocus]]
         default: return [[]]
         }
     }

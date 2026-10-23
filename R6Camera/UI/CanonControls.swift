@@ -33,7 +33,7 @@ enum CameraControl: String, CaseIterable, Identifiable {
         case .hue: return String(format: "%+.1f", s.hue)
         case .stickiness: return String(format: "%.1f 秒", s.trackingStickiness)
         case .sensitivity: return String(format: "%.1f", s.switchSensitivity)
-        case .area: return "全區域 · 觸控指定"
+        case .area: return s.focusArea.mode.rawValue
         case .meter: return "系統測光"
         case .level: return s.levelSize.rawValue
         }
@@ -68,7 +68,8 @@ enum CameraControl: String, CaseIterable, Identifiable {
         case .stickiness: target.trackingStickiness = draft.trackingStickiness
         case .sensitivity: target.switchSensitivity = draft.switchSensitivity
         case .level: target.levelSize = draft.levelSize
-        case .area, .meter: break
+        case .area: target.focusArea = draft.focusArea
+        case .meter: break
         }
     }
 }
@@ -78,11 +79,12 @@ struct CanonGlyph: View {
     enum Kind { case area, style, meter, eye, subject, quality, drive }
     let kind: Kind
     var label = ""
+    var area: FocusAreaMode = .whole
     var body: some View {
         ZStack {
             switch kind {
             case .area:
-                FocusCorners().stroke(lineWidth: 1.4).padding(3)
+                FocusAreaGlyph(mode: area)
             case .style:
                 Rectangle().stroke(lineWidth: 1)
                 HStack(spacing: 2) {

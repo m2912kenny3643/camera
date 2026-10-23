@@ -35,6 +35,7 @@ struct QuickControlView: View {
     }
     private var paletteHeight: CGFloat {
         switch initial {
+        case .area: return 214
         case .drive: return 194
         case .whiteBalance: return 140
         case .exposure: return 130
@@ -47,7 +48,7 @@ struct QuickControlView: View {
                 switch control {
                 case .format: CanonGlyph(kind: .quality, label: camera.settings.format == .raw ? "R" : "L")
                 case .drive: CanonGlyph(kind: .drive, label: camera.settings.drive.code)
-                case .area: CanonGlyph(kind: .area)
+                case .area: CanonGlyph(kind: .area, area: camera.settings.effective.focusArea.mode)
                 case .mode: Text(camera.settings.program.rawValue).font(.system(size: 31, weight: .bold))
                 case .style: CanonGlyph(kind: .style, label: camera.settings.effective.style.cameraCode)
                 case .meter: CanonGlyph(kind: .meter)

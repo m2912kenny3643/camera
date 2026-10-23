@@ -22,7 +22,7 @@ struct VisionFrameGate {
     mutating func accept(_ result: TrackingResult, currentEpoch: UInt64, now: Double) -> Bool {
         if let candidate = result.epoch {
             guard candidate == currentEpoch else { return false }
-            if epoch != candidate { epoch = candidate; sequence = nil }
+            if epoch != candidate { epoch = candidate; sequence = nil; freshness = FrameFreshness() }
             if let next = result.frameSequence, let sequence, next <= sequence { return false }
         }
         if let time = result.observedAt, !freshness.accept(time, now: now) { return false }

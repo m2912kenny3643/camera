@@ -31,7 +31,8 @@ struct CameraControlEditor: View {
                 }
             }.font(.system(size: 13)).padding(.horizontal, 16).frame(minHeight: 30).background(Color(white: palette ? 0.08 : 0.2).opacity(0.9))
             if editable {
-                if let range = numericRange {
+                if control == .area { FocusAreaOptions(draft: $draft, accent: accent) }
+                else if let range = numericRange {
                     VStack(spacing: 8) {
                         Text(control.value(draft)).font(.system(size: 22, weight: .medium, design: .monospaced))
                         Slider(value: numericBinding, in: range, step: step).tint(accent).accessibilityIdentifier("editor.slider")
@@ -132,7 +133,7 @@ struct CameraControlEditor: View {
         case .drive: return "保留所選畫質；依曝光與緩衝狀態降速"
         case .style: return "獨立調校風格；RAW 保留原始資料"
         case .level: return "INFO 切換電子水平儀；感測器不可用時不顯示"
-        case .area: return "全區域辨識，觸控指定"
+        case .area: return "軟體選取範圍與鏡頭對焦點；非 Canon 感測器對焦點陣列"
         case .meter: return "iPhone 系統測光"
         default: return "返回取消 · SET 套用"
         }

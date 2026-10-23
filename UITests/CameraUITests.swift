@@ -1,6 +1,43 @@
 import XCTest
 
 final class CameraUITests: XCTestCase {
+    func testEightFocusAreasDraftSizingMovementAndProgramOverride() {
+        continueAfterFailure = false
+        let app = XCUIApplication(); app.launchEnvironment["R6_UI_TESTING"] = "1"; app.launch()
+        let area = app.buttons["hud.area"]
+        XCTAssertTrue(area.waitForExistence(timeout: 10))
+        XCTAssertEqual(area.value as? String, "全區域自動對焦")
+        area.tap()
+        let names = ["重點自動對焦", "單點自動對焦", "擴展自動對焦區域：四點", "擴展自動對焦區域：環繞", "彈性區域自動對焦1", "彈性區域自動對焦2", "彈性區域自動對焦3", "全區域自動對焦"]
+        for name in names { XCTAssertTrue(app.buttons["option.\(name)"].exists) }
+        app.buttons["option.彈性區域自動對焦2"].tap()
+        XCTAssertTrue(app.sliders["area.width"].exists)
+        app.sliders["area.width"].adjust(toNormalizedSliderPosition: 0.4)
+        app.buttons["editor.back"].tap()
+        XCTAssertEqual(area.value as? String, "全區域自動對焦")
+        area.tap(); app.buttons["option.彈性區域自動對焦2"].tap()
+        app.sliders["area.width"].adjust(toNormalizedSliderPosition: 0.4)
+        app.buttons["editor.confirm"].tap()
+        XCTAssertEqual(area.value as? String, "彈性區域自動對焦2")
+        capture("10-Flexible-area-applied")
+        let frame = app.descendants(matching: .any)["focus.areaFrame"]
+        XCTAssertTrue(frame.exists)
+        let before = frame.value as? String
+        let photo = app.descendants(matching: .any)["camera.viewfinder"]
+        let center = photo.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        center.press(forDuration: 0.15, thenDragTo: photo.coordinate(withNormalizedOffset: CGVector(dx: 0.65, dy: 0.5)))
+        XCTAssertNotEqual(frame.value as? String, before)
+        capture("11-Flexible-area-moved")
+        app.buttons["hud.mode"].tap(); app.buttons["option.A+"].tap(); app.buttons["editor.confirm"].tap()
+        XCTAssertEqual(area.value as? String, "全區域自動對焦")
+        app.buttons["hud.mode"].tap(); app.buttons["option.M"].tap(); app.buttons["editor.confirm"].tap()
+        XCTAssertEqual(area.value as? String, "彈性區域自動對焦2")
+        app.buttons["MENU"].tap(); app.buttons["menu.tab.1"].tap()
+        app.buttons["menu.自動對焦區域"].tap()
+        XCTAssertTrue(app.switches["area.wholeTracking"].exists)
+        capture("12-MENU-eight-focus-areas")
+        app.buttons["editor.back"].tap(); app.buttons["menu.close"].tap()
+    }
     func testHardwareLightPressReturnsFromQuickMenuNestedPageAndPlayback() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -15,6 +52,7 @@ final class CameraUITests: XCTestCase {
         func lightPressAndImmediateFullPress() {
             let triggers = app.buttons.matching(identifier: "fixture.hardwareReturn").allElementsBoundByIndex
             guard let trigger = triggers.first(where: { $0.isHittable }) else { XCTFail("Missing visible hardware injection"); return }
+            XCTAssertEqual(trigger.value as? String, "window-enabled", "Actual window receiver must remain attached and enabled before injection")
             trigger.tap()
             returnedShots += 1
             let feedback = app.buttons["fixture.capture"]

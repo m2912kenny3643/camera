@@ -53,7 +53,7 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         previewSettings = settings
         snapshotLock.unlock()
         queue.async {
-            if self.settings.subjects != settings.subjects || self.settings.autofocus != settings.autofocus {
+            if FocusConfiguration(self.settings) != FocusConfiguration(settings) {
                 self.tracker.reset()
                 self.settings = settings
                 var cleared = self.tracker.result
@@ -67,7 +67,15 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         let selectionEpoch = invalidate()
         queue.async {
             guard self.settings.autofocus != .manual else { return }
-            self.tracker.select(at: point, eyes: self.settings.eyes, mode: self.settings.autofocus)
+            self.tracker.select(at: point, eyes: self.settings.eyes, mode: self.settings.autofocus, area: self.settings.focusArea, now: CACurrentMediaTime())
+            self.publish(self.tracker.result, histogram: [], epoch: selectionEpoch)
+        }
+    }
+    func acquire() {
+        let selectionEpoch = invalidate()
+        queue.async {
+            guard self.settings.autofocus != .manual else { return }
+            self.tracker.acquire(settings: self.settings, at: CACurrentMediaTime())
             self.publish(self.tracker.result, histogram: [], epoch: selectionEpoch)
         }
     }
@@ -119,6 +127,9 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
                         let valid = self.epoch == frameEpoch && self.trackingSeed?.sequence == seed.sequence
                         self.snapshotLock.unlock()
                         guard valid else { return }
+                        if !snapshot.focusArea.wholeAreaTracking,
+                           let selected = result.selected,
+                           !snapshot.focusArea.contains(selected.focusPoint(snapshot.eyes)) { return }
                         self.onFrame?(result, CGSize(width: CVPixelBufferGetWidth(buffer),height: CVPixelBufferGetHeight(buffer)), [], nil)
                     }
                 } catch { self.birdFlow.reset() }

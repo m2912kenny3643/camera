@@ -11,6 +11,8 @@ struct CameraView: View {
     @State private var infoPage = 0
     private var info: Bool { infoPage != 2 }
     @State private var magnification = false
+    @State private var areaDrag: FocusArea?
+    @State private var areaDragOrigin: CGPoint?
     @State private var pinchStart: CGFloat?
     @State private var notice: String?
     @State private var feedback = CaptureFeedback()
@@ -33,6 +35,7 @@ struct CameraView: View {
         }
         .preferredColorScheme(.dark).onAppear { camera.start() }
         .onChange(of: scenePhase) { _, phase in
+            camera.sceneIsActive = phase == .active
             if phase == .active {
                 camera.captureEnabled = panel == nil && !coverPresented
                 camera.start(); if infoPage == 1 && panel == nil { level.start() }
@@ -45,7 +48,7 @@ struct CameraView: View {
         }
         .onChange(of: camera.capturePageReturnRequest) { _, request in
             let returningFromPanel = panel != nil
-            quick = nil; zoomOpen = false; magnification = false; pinchStart = nil
+            quick = nil; zoomOpen = false; magnification = false; pinchStart = nil; areaDrag = nil; areaDragOrigin = nil
             panel = nil; camera.error = nil
             camera.dismissPresentedCameraUI {
                 // A full-screen cover is ready only when SwiftUI confirms its own dismissal.
@@ -93,6 +96,25 @@ struct CameraView: View {
         } message: { Text(camera.error ?? "") }
         .overlay(alignment: .top) { HardwareReturnTestButton(camera: camera) }
     }
+    private func areaDragGesture(in size: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 8).onChanged { value in
+            guard camera.settings.program != .auto, camera.settings.effective.autofocus != .manual,
+                  camera.settings.effective.focusArea.mode != .whole else { return }
+            let image = ViewfinderGeometry.imageRect(imageAspect: camera.frameAspect, in: size)
+            if areaDragOrigin == nil {
+                guard let start = ViewfinderGeometry.normalizedIfInside(value.startLocation, imageAspect: camera.frameAspect, size: size),
+                      camera.settings.effective.focusArea.bounds.contains(start) else { return }
+                areaDrag = camera.settings.effective.focusArea
+                areaDragOrigin = areaDrag?.center
+            }
+            guard let origin = areaDragOrigin else { return }
+            areaDrag?.move(to: CGPoint(x: origin.x + value.translation.width / image.width,
+                                      y: origin.y + value.translation.height / image.height))
+        }.onEnded { _ in
+            if let areaDrag { camera.moveFocusArea(to: areaDrag.center) }
+            areaDrag = nil; areaDragOrigin = nil
+        }
+    }
     private var viewfinder: some View {
         GeometryReader { g in
             ZStack {
@@ -110,16 +132,20 @@ struct CameraView: View {
                     zoomOpen = false
                     guard let normalized = ViewfinderGeometry.normalizedIfInside(point, imageAspect: camera.frameAspect, size: g.size) else { return }
                     camera.tap(at: normalized)
-                }.simultaneousGesture(MagnifyGesture().onChanged { value in
+                }.gesture(MagnifyGesture().onChanged { value in
+                    areaDrag = nil; areaDragOrigin = nil
                     if pinchStart == nil { pinchStart = camera.zoom }
                     camera.setZoom((pinchStart ?? camera.zoom) * value.magnification)
-                }.onEnded { _ in pinchStart = nil })
+                }.onEnded { _ in pinchStart = nil }.exclusively(before: areaDragGesture(in: g.size)))
                 if camera.settings.grid && info {
                     let image = ViewfinderGeometry.imageRect(imageAspect: camera.frameAspect, in: g.size)
                     GridLines().stroke(.white.opacity(0.3), lineWidth: 0.5)
                         .frame(width: image.width, height: image.height).position(x: image.midX, y: image.midY).allowsHitTesting(false)
                 }
                 if camera.settings.effective.autofocus != .manual {
+                    if camera.settings.effective.focusArea.mode != .whole {
+                        FocusAreaOverlay(area: areaDrag ?? camera.settings.effective.focusArea, aspect: camera.frameAspect)
+                    }
                     TrackingOverlay(result: camera.tracking, eyes: camera.settings.effective.eyes, aspect: camera.frameAspect).allowsHitTesting(false)
                 }
                 if infoPage == 1, let reading = camera.isUIFixture ? LevelReading(roll: 0, pitch: 0) : level.reading {
@@ -143,7 +169,8 @@ struct CameraView: View {
                 Button { open(.mode) } label: {
                     Text(camera.settings.program.rawValue).font(.system(size: 31 * unit, weight: .bold)).frame(minWidth: 40, alignment: .leading)
                 }.accessibilityIdentifier("hud.mode")
-                CameraMarkButton(title: "自動對焦區域", action: { open(.area) }) { CanonGlyph(kind: .area) }
+                CameraMarkButton(title: "自動對焦區域", action: { open(.area) }) { CanonGlyph(kind: .area, area: camera.settings.effective.focusArea.mode) }
+                    .accessibilityIdentifier("hud.area").accessibilityValue(camera.settings.effective.focusArea.mode.rawValue)
                 Button { open(.autofocus) } label: {
                     Text(camera.settings.effective.autofocus.rawValue).font(.system(size: 11 * unit, weight: .semibold)).frame(minHeight: 27)
                 }.accessibilityIdentifier("hud.af")

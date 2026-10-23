@@ -2,17 +2,17 @@ import XCTest
 @testable import R6Camera
 
 final class HardwareShutterTests: XCTestCase {
-    func testOldSettingsDecodeWithExperimentOffAndNewSettingRoundTrips() throws {
+    func testOldSettingsDecodeWithExperimentOnAndNewSettingRoundTrips() throws {
         let encoder = JSONEncoder()
         var settings = CameraSettings()
-        XCTAssertFalse(settings.experimentalHardwareShutter)
+        XCTAssertTrue(settings.experimentalHardwareShutter)
         settings.experimentalHardwareShutter = true
         let data = try encoder.encode(settings)
         XCTAssertTrue(try JSONDecoder().decode(CameraSettings.self, from: data).experimentalHardwareShutter)
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         object.removeValue(forKey: "storedExperimentalHardwareShutter")
         let oldData = try JSONSerialization.data(withJSONObject: object)
-        XCTAssertFalse(try JSONDecoder().decode(CameraSettings.self, from: oldData).experimentalHardwareShutter)
+        XCTAssertTrue(try JSONDecoder().decode(CameraSettings.self, from: oldData).experimentalHardwareShutter)
     }
     private func send(_ gate: inout HardwareShutter, _ input: HardwareShutter.Input,
                       _ time: Double, burst: Bool = false, available: Bool = true,

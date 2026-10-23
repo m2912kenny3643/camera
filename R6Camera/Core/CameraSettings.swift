@@ -106,9 +106,14 @@ struct CameraSettings: Codable, Equatable {
     private var storedLevelSize: LevelSize?
     private var storedBurstRateTrial: BurstRateTrial?
     private var storedExperimentalHardwareShutter: Bool?
-    /// Missing in older current/C1-C3 payloads: retain the shared hardware shutter.
+    private var storedFocusArea: FocusArea?
+    var focusArea: FocusArea {
+        get { storedFocusArea ?? FocusArea() }
+        set { storedFocusArea = newValue }
+    }
+    /// Missing values opt in; an explicitly saved opt-out remains off.
     var experimentalHardwareShutter: Bool {
-        get { storedExperimentalHardwareShutter ?? false }
+        get { storedExperimentalHardwareShutter ?? true }
         set { storedExperimentalHardwareShutter = newValue }
     }
     var burstRateTrial: BurstRateTrial {
@@ -133,6 +138,7 @@ struct CameraSettings: Codable, Equatable {
         var value = self
         value.whiteBalance = .automatic; value.autofocus = .servo
         value.subjects = .automatic; value.eyes = .automatic
+        value.focusArea = FocusArea()
         value.style = .standard; value.exposureBias = 0
         value.contrast = 0; value.saturation = 0; value.sharpness = 0; value.hue = 0
         return value

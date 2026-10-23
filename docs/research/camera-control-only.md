@@ -1,6 +1,6 @@
 # Camera Control shutter without volume-button capture
 
-Checked: 2026-10-22; experimental implementation added 2026-10-23 (Asia/Taipei). Target: iPhone 17 / iOS 27; project deployment target remains iOS 18. The initial research was read-only; the opt-in implementation below changes app behavior without resolving hardware identity.
+Checked: 2026-10-22; experimental implementation added 2026-10-23 (Asia/Taipei). Target: iPhone 17 / iOS 27; project deployment target remains iOS 18. The initial research was read-only; the experimental implementation changes app behavior without resolving hardware identity.
 
 ## Verdict
 
@@ -28,9 +28,13 @@ The SwiftUI capture modifier also delivers `AVCaptureEvent`; switching to it doe
 
 Camera Control's light-press zoom/exposure controls are a separate interface. Control activation/presentation callbacks do not establish which button originated a subsequent capture event. [Apple controls article](https://developer.apple.com/documentation/avfoundation/enhancing-your-app-experience-with-the-camera-control)
 
+## 0.8.0 update (2026-10-23)
+
+The user requested default-on two-stage shutter while preserving explicit opt-outs. New/missing/reset settings now enable it; unsupported controls retain shared-button capture on the capture page. One scene-window receiver replaces the preview-owned interaction so full-screen MENU no longer detaches the receiving view. The actual OS hardware routing remains pending device acceptance. Diagnostics add window/scene attachment and enabled state; presentation tests assert the real interaction remains installed, separately from injected events. An already-active overlay may not issue another activation on a subsequent physical light press, so universal half-press return cannot be promised. See [0.8.0 delivery and device checklist](../delivery/focus-areas-0.8.0.md).
+
 ## Existing app behavior
 
-The initial app installed the single-handler initializer. The experimental implementation now registers primary and secondary handlers separately, routes phases into a testable gate, and preserves shared-button capture when the experiment is off. This routing does not identify Camera Control versus volume-down. `updateUIView` toggles the interaction globally through `isEnabled`. [Current implementation](../../R6Camera/UI/CameraPreview.swift)
+The initial app installed the single-handler initializer. The experimental implementation now registers primary and secondary handlers separately, routes phases into a testable gate, and preserves shared-button capture when the experiment is off. This routing does not identify Camera Control versus volume-down. The controller synchronizes the scene-window interaction through `isEnabled`. [Current implementation](../../R6Camera/Camera/HardwareCaptureReceiver.swift)
 
 No validated change to only that closure can distinguish Camera Control from volume down using the documented event object. Do not mark a primary-only rewrite as meeting the requirement.
 
@@ -63,5 +67,5 @@ The user accepted a hardware-first approximation: activate the controls overlay 
 
 ### Validation boundary
 
-Regression tests replay the five rejected device timestamps and cover repeated active-overlay presses, dismissal grace, stale ordering, held presses, transition-queued single/burst capture, interruption, secondary rejection, duplicates, legacy behavior and backward-compatible settings. UI event injection covers returning from Q drafts, menu editors, nested bird diagnostics, playback and zoom, including an immediate full click. Injection is simulator-only and is not physical gesture validation. The user supplied initial physical light-press evidence; the revised page-return flow, A+ availability, AF, source false accepts and burst-release latency still need device retesting. Keep the experiment off by default and do not claim Camera-Control-only capture.
+Regression tests replay the five rejected device timestamps and cover repeated active-overlay presses, dismissal grace, stale ordering, held presses, transition-queued single/burst capture, interruption, secondary rejection, duplicates, legacy behavior and backward-compatible settings. UI event injection covers returning from Q drafts, menu editors, nested bird diagnostics, playback and zoom, including an immediate full click. Injection is simulator-only and is not physical gesture validation. The user supplied initial physical light-press evidence; the revised page-return flow, A+ availability, AF, source false accepts and burst-release latency still need device retesting. The 0.7.1 default-off policy is superseded by the user-approved 0.8.0 default-on policy above; do not claim Camera-Control-only capture.
 
