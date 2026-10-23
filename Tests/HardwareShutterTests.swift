@@ -16,8 +16,9 @@ final class HardwareShutterTests: XCTestCase {
     }
     private func send(_ gate: inout HardwareShutter, _ input: HardwareShutter.Input,
                       _ time: Double, burst: Bool = false, available: Bool = true,
-                      experimental: Bool = true) -> [HardwareShutter.Action] {
-        gate.receive(input, at: time, experimental: experimental, available: available, burst: burst).actions
+                      experimental: Bool = true, captureAllowed: Bool = true) -> [HardwareShutter.Action] {
+        gate.receive(input, at: time, experimental: experimental, available: available, burst: burst,
+                     captureAllowed: captureAllowed, returningToCapture: !captureAllowed).actions
     }
     func testDirectPressAndSecondaryCannotCapture() {
         var gate = HardwareShutter()
@@ -35,22 +36,19 @@ final class HardwareShutterTests: XCTestCase {
         _ = send(&gate, .primaryEnded, 10.1)
         XCTAssertEqual(send(&gate, .primaryBegan, 10.2), [.photo])
     }
-    func testAuthorizationIsConsumedAndDuplicateCallbacksDoNotRearm() {
+    func testActiveOverlayAllowsRepeatedPressesWithoutTwoSecondExpiry() {
         var gate = HardwareShutter()
         XCTAssertEqual(send(&gate, .controlsActive, 0), [.focus])
         XCTAssertEqual(send(&gate, .controlsActive, 1), [])
-        XCTAssertEqual(gate.deadline, 2)
-        XCTAssertEqual(send(&gate, .primaryBegan, 1), [.photo])
-        XCTAssertEqual(send(&gate, .primaryBegan, 1.1), [])
-        _ = send(&gate, .primaryEnded, 1.2)
-        XCTAssertEqual(send(&gate, .controlsActive, 1.3), [])
-        XCTAssertEqual(send(&gate, .primaryBegan, 1.4), [])
+        XCTAssertNil(gate.deadline)
+        XCTAssertEqual(send(&gate, .primaryBegan, 2.284), [.photo])
+        XCTAssertEqual(send(&gate, .primaryBegan, 2.3), [])
+        _ = send(&gate, .primaryEnded, 3)
+        XCTAssertEqual(send(&gate, .controlsActive, 3.1), [])
+        XCTAssertEqual(send(&gate, .primaryBegan, 15), [.photo])
     }
     func testExactExpiryAndDismissalGraceBoundaries() {
         var gate = HardwareShutter()
-        _ = send(&gate, .controlsActive, 10)
-        XCTAssertEqual(send(&gate, .primaryBegan, 12), [])
-        gate = HardwareShutter()
         _ = send(&gate, .controlsActive, 10)
         _ = send(&gate, .controlsInactive, 10.5)
         _ = send(&gate, .controlsInactive, 10.7)
@@ -58,9 +56,64 @@ final class HardwareShutterTests: XCTestCase {
         XCTAssertEqual(send(&gate, .primaryBegan, 10.799), [.photo])
         gate = HardwareShutter()
         _ = send(&gate, .controlsActive, 10)
-        _ = send(&gate, .controlsInactive, 11.9)
-        XCTAssertEqual(gate.deadline, 12)
-        XCTAssertEqual(send(&gate, .primaryBegan, 12), [])
+        _ = send(&gate, .controlsInactive, 20)
+        XCTAssertEqual(gate.deadline!, 20.3, accuracy: 0.00001)
+        XCTAssertEqual(send(&gate, .primaryBegan, 20.3), [])
+    }
+    func testDismissalGraceIsConsumedButActiveOverlayIsNot() {
+        var gate = HardwareShutter()
+        _ = send(&gate, .controlsActive, 0)
+        _ = send(&gate, .controlsInactive, 10)
+        XCTAssertEqual(send(&gate, .primaryBegan, 10.1), [.photo])
+        _ = send(&gate, .primaryEnded, 10.15)
+        XCTAssertEqual(send(&gate, .primaryBegan, 10.2), [])
+    }
+    func testDeviceLogSequenceNoLongerRejectsFiveFullPresses() {
+        var gate = HardwareShutter()
+        _ = send(&gate, .controlsActive, 39080.036483375006)
+        for (began, ended) in [(39082.32026487501, 39083.67955954168),
+                               (39084.42962408334, 39085.12953995834),
+                               (39085.430341833344, 39085.58136579167),
+                               (39086.03004166667, 39086.14671283334),
+                               (39086.330320833345, 39086.46334891667)] {
+            XCTAssertEqual(send(&gate, .primaryBegan, began), [.photo])
+            _ = send(&gate, .primaryEnded, ended)
+        }
+    }
+    func testMenuReturnDefersSingleShotUntilCapturePageIsReady() {
+        var gate = HardwareShutter()
+        XCTAssertEqual(send(&gate, .controlsActive, 0, captureAllowed: false), [.focus])
+        XCTAssertEqual(send(&gate, .primaryBegan, 0.1, captureAllowed: false), [])
+        XCTAssertEqual(gate.pendingCapture, .photo)
+        _ = send(&gate, .primaryEnded, 0.2, captureAllowed: false)
+        XCTAssertEqual(send(&gate, .capturePageReady, 0.3), [.photo])
+        XCTAssertEqual(send(&gate, .capturePageReady, 0.4), [])
+    }
+    func testCoveredPageCannotQueueCaptureWithoutLightPressReturn() {
+        var gate = HardwareShutter()
+        _ = send(&gate, .controlsActive, 0)
+        let result = gate.receive(.primaryBegan, at: 1, experimental: true, available: true,
+                                  burst: false, captureAllowed: false, returningToCapture: false)
+        XCTAssertTrue(result.actions.isEmpty)
+        XCTAssertNil(gate.pendingCapture)
+        XCTAssertEqual(send(&gate, .capturePageReady, 2), [])
+    }
+    func testMenuReturnBurstRequiresStillHeldAndResetRevokesPendingPhoto() {
+        var gate = HardwareShutter()
+        _ = send(&gate, .controlsActive, 0, captureAllowed: false)
+        _ = send(&gate, .primaryBegan, 0.1, burst: true, captureAllowed: false)
+        XCTAssertEqual(send(&gate, .capturePageReady, 0.2), [.beginBurst])
+        XCTAssertEqual(send(&gate, .primaryEnded, 1), [.stopBurst])
+        gate = HardwareShutter()
+        _ = send(&gate, .controlsActive, 0, captureAllowed: false)
+        _ = send(&gate, .primaryBegan, 0.1, burst: true, captureAllowed: false)
+        _ = send(&gate, .primaryEnded, 0.2, captureAllowed: false)
+        XCTAssertEqual(send(&gate, .capturePageReady, 0.3), [])
+        gate = HardwareShutter()
+        _ = send(&gate, .controlsActive, 0, captureAllowed: false)
+        _ = send(&gate, .primaryBegan, 0.1, captureAllowed: false)
+        _ = send(&gate, .reset, 0.2)
+        XCTAssertEqual(send(&gate, .capturePageReady, 0.3), [])
     }
     func testBurstSurvivesExpiryUntilRelease() {
         var gate = HardwareShutter()
@@ -87,13 +140,13 @@ final class HardwareShutterTests: XCTestCase {
         XCTAssertEqual(send(&gate, .primaryBegan, 0.1, available: false), [])
         XCTAssertEqual(send(&gate, .primaryBegan, 0.2), [])
     }
-    func testRejectedHeldPressCannotBecomeCaptureByOverlayActivation() {
+    func testHeldUnpreparedPressIsRejectedButNextFreshPressCanCapture() {
         var gate = HardwareShutter()
         _ = send(&gate, .primaryBegan, 0)
         XCTAssertEqual(send(&gate, .controlsActive, 0.1), [])
         XCTAssertEqual(send(&gate, .primaryBegan, 0.2), [])
         _ = send(&gate, .primaryEnded, 0.3)
-        XCTAssertEqual(send(&gate, .primaryBegan, 0.4), [])
+        XCTAssertEqual(send(&gate, .primaryBegan, 0.4), [.photo])
     }
     func testLegacyModeRetainsBothButtonsAndDoesNotFocusOnOverlay() {
         var gate = HardwareShutter()

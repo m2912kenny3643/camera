@@ -5,6 +5,7 @@ struct CameraView: View {
     @StateObject private var level = LevelMonitor()
     @Environment(\.scenePhase) private var scenePhase
     @State private var panel: Panel?
+    @State private var coverPresented = false
     @State private var quick: CameraControl?
     @State private var zoomOpen = false
     @State private var infoPage = 0
@@ -32,14 +33,26 @@ struct CameraView: View {
         }
         .preferredColorScheme(.dark).onAppear { camera.start() }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { camera.start(); if infoPage == 1 { level.start() } }
+            if phase == .active {
+                camera.captureEnabled = panel == nil && !coverPresented
+                camera.start(); if infoPage == 1 && panel == nil { level.start() }
+            }
             else { camera.stop(); level.stop() }
         }
         .onChange(of: infoPage) { _, page in if page == 1 { level.start() } else { level.stop() } }
         .onChange(of: panel) { _, panel in
-            camera.captureEnabled = panel == nil
-            if panel != nil { camera.cancelCapture(); level.stop() }
-            else if infoPage == 1 { level.start() }
+            if panel != nil { coverPresented = true; camera.captureEnabled = false; camera.cancelCapture(); level.stop() }
+        }
+        .onChange(of: camera.capturePageReturnRequest) { _, request in
+            let returningFromPanel = panel != nil
+            quick = nil; zoomOpen = false; magnification = false; pinchStart = nil
+            panel = nil; camera.error = nil
+            camera.dismissPresentedCameraUI {
+                // A full-screen cover is ready only when SwiftUI confirms its own dismissal.
+                guard !returningFromPanel, scenePhase == .active else { return }
+                camera.capturePageDidReturn(request: request)
+                if infoPage == 1 { level.start() }
+            }
         }
         .task(id: camera.status) {
             notice = nil
@@ -59,16 +72,26 @@ struct CameraView: View {
             feedback.finish(event: event)
         }
         .onDisappear { feedback.cancel(); level.stop() }
-        .fullScreenCover(item: $panel) { item in
+        .fullScreenCover(item: $panel, onDismiss: {
+            coverPresented = false
+            guard panel == nil else { return }
+            guard scenePhase == .active else { camera.captureEnabled = false; return }
+            if camera.hardwareReturningToCapture {
+                camera.capturePageDidReturn(request: camera.capturePageReturnRequest)
+            } else { camera.captureEnabled = true }
+            if infoPage == 1 { level.start() }
+        }) { item in
             switch item {
             case .menu: CameraSettingsView(camera: camera)
             case .playback: GalleryView(urls: camera.galleryURLs())
+                .overlay(alignment: .topTrailing) { HardwareReturnTestButton(camera: camera) }
             }
         }
         .alert("相機提示", isPresented: Binding(get: { camera.error != nil }, set: { if !$0 { camera.error = nil } })) {
             Button("確定") { camera.error = nil }
             Button("開啟設定") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
         } message: { Text(camera.error ?? "") }
+        .overlay(alignment: .topTrailing) { HardwareReturnTestButton(camera: camera) }
     }
     private var viewfinder: some View {
         GeometryReader { g in
@@ -202,7 +225,7 @@ struct CameraView: View {
             ZStack {
                 Button { camera.cancelCapture(); camera.captureEnabled = false; panel = .playback } label: {
                     Image(systemName: "play.rectangle").font(.system(size: 23)).frame(width: 44, height: g.size.height)
-                }.position(x: g.size.width * 0.045, y: g.size.height / 2)
+                }.accessibilityIdentifier("gallery.open").position(x: g.size.width * 0.045, y: g.size.height / 2)
                 Button { open(.shutter) } label: { Text(CameraSettings.shutterLabel(camera.actualShutter)).underline(!camera.settings.effective.controlsShutter) }.accessibilityIdentifier("hud.shutter")
                     .monospacedDigit().frame(width: 92, height: g.size.height).position(x: g.size.width * 0.23, y: g.size.height / 2)
                 Text(String(format: "F%.1f", camera.aperture)).foregroundStyle(.gray)

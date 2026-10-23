@@ -67,7 +67,7 @@ struct CameraSettingsView: View {
                                 .accessibilityValue(camera.settings.experimentalHardwareShutter ? "開啟" : "關閉")
                             Text(camera.hardwareControlStatus).font(.system(size: 11)).foregroundStyle(.yellow)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                            Text("先輕按對焦，2 秒內全按拍攝。這是浮層代理，無法識別真實半按或按鍵來源；窗口內音量減仍可能拍攝。開啟後直接全按不拍，音量加不拍。A+ 模式對焦選項由自動模式固定。").font(.system(size: 11)).foregroundStyle(.gray)
+                            Text("輕按返回拍攝頁面並對焦。浮層啟用期間可重複全按；關閉後保留 300ms。這是浮層代理，不能辨別真實半按或按鍵來源，期間音量減仍可能拍攝。音量加不拍；A+ 固定自動對焦模式。").font(.system(size: 11)).foregroundStyle(.gray)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             ShareLink(item: camera.hardwareShutterReport) {
                                 Label("分享硬體快門事件 JSON", systemImage: "square.and.arrow.up")
@@ -120,7 +120,10 @@ struct CameraSettingsView: View {
                     }
                 }
         }.preferredColorScheme(.dark)
-            .fullScreenCover(isPresented: $birdTest) { BirdDiagnosticsView() }
+            .overlay(alignment: .topTrailing) { HardwareReturnTestButton(camera: camera) }
+            .fullScreenCover(isPresented: $birdTest) {
+                BirdDiagnosticsView().overlay(alignment: .topTrailing) { HardwareReturnTestButton(camera: camera) }
+            }
             .confirmationDialog("校準會實際拍照及存檔。開啟鳥眼，返回取景後，每段按住相機鍵至少10秒；三段通過才保存。", isPresented: $calibratePrompt) {
                 Button("開始真機校準") { camera.startBurstCalibration() }
             }

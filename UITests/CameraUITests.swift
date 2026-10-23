@@ -1,6 +1,53 @@
 import XCTest
 
 final class CameraUITests: XCTestCase {
+    func testHardwareLightPressReturnsFromQuickMenuNestedPageAndPlayback() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchEnvironment["R6_UI_TESTING"] = "1"
+        app.launchEnvironment["R6_UI_FEEDBACK_TEST"] = "1"
+        app.launchEnvironment["R6_UI_HARDWARE_RETURN_TEST"] = "1"
+        app.launch()
+        XCTAssertTrue(app.buttons["quick.open"].waitForExistence(timeout: 10))
+        var returnedShots = 0
+        func lightPressAndImmediateFullPress() {
+            let triggers = app.buttons.matching(identifier: "fixture.hardwareReturn").allElementsBoundByIndex
+            guard let trigger = triggers.first(where: { $0.isHittable }) else { XCTFail("Missing visible hardware injection"); return }
+            trigger.tap()
+            returnedShots += 1
+            let feedback = app.buttons["fixture.capture"]
+            let returned = NSPredicate(format: "value == %@", String(returnedShots))
+            expectation(for: returned, evaluatedWith: feedback)
+            waitForExpectations(timeout: 8)
+            XCTAssertTrue(app.buttons["quick.open"].isHittable)
+            XCTAssertFalse(app.buttons["menu.close"].exists)
+            XCTAssertFalse(app.buttons["editor.confirm"].exists)
+            XCTAssertFalse(app.buttons["gallery.close"].exists)
+        }
+        app.buttons["quick.open"].tap()
+        app.buttons["quick.eye"].tap()
+        app.buttons["option.右眼優先"].tap() // The unconfirmed draft must be discarded.
+        lightPressAndImmediateFullPress()
+        app.buttons["quick.open"].tap(); app.buttons["quick.eye"].tap()
+        XCTAssertEqual(app.buttons["option.自動"].value as? String, "已選取")
+        lightPressAndImmediateFullPress()
+        app.buttons["MENU"].tap(); app.buttons["menu.tab.1"].tap()
+        app.buttons["menu.眼睛偵測"].tap()
+        lightPressAndImmediateFullPress()
+        app.buttons["MENU"].tap(); app.buttons["menu.tab.1"].tap()
+        app.buttons["bird.test.open"].tap()
+        XCTAssertTrue(app.buttons["bird.test.close"].waitForExistence(timeout: 5))
+        lightPressAndImmediateFullPress()
+        XCTAssertFalse(app.buttons["bird.test.close"].exists)
+        app.buttons["gallery.open"].tap()
+        XCTAssertTrue(app.buttons["gallery.close"].waitForExistence(timeout: 5))
+        lightPressAndImmediateFullPress()
+        app.buttons["zoom.open"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["zoom.wheel"].waitForExistence(timeout: 5))
+        lightPressAndImmediateFullPress()
+        XCTAssertFalse(app.descendants(matching: .any)["zoom.wheel"].exists)
+        capture("Hardware-return-to-shooting-page")
+    }
     func testExperimentalHardwareShutterDefaultsOffAndCanBeRestored() {
         continueAfterFailure = false
         let app = XCUIApplication()

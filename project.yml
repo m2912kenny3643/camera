@@ -10,8 +10,8 @@ settings:
     TARGETED_DEVICE_FAMILY: "1"
     IPHONEOS_DEPLOYMENT_TARGET: "18.0"
     CODE_SIGNING_ALLOWED: NO
-    MARKETING_VERSION: "0.7.0"
-    CURRENT_PROJECT_VERSION: "7"
+    MARKETING_VERSION: "0.7.1"
+    CURRENT_PROJECT_VERSION: "8"
 packages:
   OnnxRuntime:
     url: https://github.com/microsoft/onnxruntime-swift-package-manager

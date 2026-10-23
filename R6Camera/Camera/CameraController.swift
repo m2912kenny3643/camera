@@ -51,9 +51,13 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     private var hardwareShutter = HardwareShutter() // main queue only.
     private var hardwareResetTime = 0.0
     private var hardwareRecords: [HardwareShutterRecord] = []
+    private var hardwareFocusAfterReturn = false
+    @Published private(set) var capturePageReturnRequest: UInt64 = 0
+    @Published private(set) var hardwareReturningToCapture = false
     @Published private(set) var hardwareControlsSupported = false
     @Published private(set) var hardwareControlStatus = "實驗性兩段硬體快門未啟用"
     weak var previewLayer: AVCaptureVideoPreviewLayer?
+    weak var presentationWindow: UIWindow?
 
     @Published var fixedRotation: CGFloat = 0
     @Published var uiFixture: UIImage?
@@ -73,13 +77,13 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     }
 
     @Published var settings: CameraSettings {
-        didSet { if oldValue != settings { resetHardwareShutter() } }
+        didSet { if oldValue != settings { resetHardwareShutter(preservingOverlay: true, reason: "settings-changed") } }
     }
     @Published var isRunning = false {
-        didSet { if !isRunning { cancelCapture() } }
+        didSet { if !isRunning { controlsActive = false; cancelCapture(reason: "session-not-running") } }
     }
     @Published var captureEnabled = true {
-        didSet { if !captureEnabled { cancelCapture() } }
+        didSet { if !captureEnabled { cancelCapture(reason: "capture-page-covered") } }
     }
     @Published var error: String?
     @Published var status = "正在啟動相機"
@@ -196,6 +200,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     private func prepareUIFixture() {
         guard uiFixture == nil else { return }
         settings = CameraSettings(); settings.program = .manual; settings.grid = false
+        settings.experimentalHardwareShutter = hardwareReturnFixture
         settings.histogram = false; settings.shutterSeconds = 1.0 / 1000; settings.iso = 400
         actualShutter = settings.shutterSeconds; actualISO = 400; battery = 0.8
         frameSize = CGSize(width: 1200, height: 900); focalAtOne = nil
@@ -253,6 +258,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             }
     }
     func stop() {
+        controlsActive = false
         cancelCapture()
         vision.reset()
         singleFocused = false
@@ -370,7 +376,10 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                 ? "等待裝置控制浮層；模擬器不能驗證硬體手勢"
                 : "實驗性兩段硬體快門未啟用"
         }
-        if previous != settings, captureTask != nil { cancelCapture() }
+        if previous != settings {
+            // settings.didSet already reset the gate while preserving a still-visible overlay.
+            captureCancellation?.cancel(); captureTask?.cancel()
+        }
         if previous != settings, isCalibrating {
             calibration = nil; isCalibrating = false; calibrationStatus = "設定已變更，校準中止"
         }
@@ -744,8 +753,8 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             }
         }
     }
-    func cancelCapture() {
-        resetHardwareShutter()
+    func cancelCapture(reason: String = "capture-cancelled") {
+        resetHardwareShutter(reason: reason)
         captureCancellation?.cancel(); captureTask?.cancel()
     }
     private func publishBurstReport() {
@@ -986,7 +995,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             focusModeControl = picker
         }
         syncHardwareFocusControl(requested)
-        publishHardwareControls(true, status: "實驗模式：先輕按對焦，再全按；窗口內音量減仍可能拍攝")
+        publishHardwareControls(true, status: "實驗模式：輕按返回拍攝／對焦，浮層啟用期間可連續全按；音量減仍可能拍攝")
     }
     /// Value updates stay on the control's action queue and do not reconfigure the capture graph.
     private func syncHardwareFocusControl(_ requested: CameraSettings) {
@@ -997,7 +1006,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         DispatchQueue.main.async {
             self.hardwareControlsSupported = supported
             self.hardwareControlStatus = status
-            if !supported { self.resetHardwareShutter() }
+            if !supported { self.resetHardwareShutter(reason: "controls-unavailable") }
         }
     }
     var hardwareShutterReport: String {
@@ -1008,19 +1017,29 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
     }
     func hardwareInput(_ input: HardwareShutter.Input, at time: Double = CACurrentMediaTime()) {
         let experimental = settings.experimentalHardwareShutter
-        let available = isRunning && captureEnabled && (!experimental || hardwareControlsSupported)
+        let available = isRunning && (experimental ? hardwareControlsSupported : captureEnabled)
         guard time >= hardwareResetTime else {
             recordHardware(input, time: time, available: available,
                            decision: HardwareShutter.Decision(actions: [], reason: "stale-input-before-reset"))
             return
         }
         let decision = hardwareShutter.receive(input, at: time, experimental: experimental,
-                                              available: available, burst: settings.drive.isBurst)
+                                              available: available, burst: settings.drive.isBurst,
+                                              captureAllowed: captureEnabled && !hardwareReturningToCapture,
+                                              returningToCapture: hardwareReturningToCapture)
+        if input == .controlsActive, experimental, available, !hardwareReturningToCapture {
+            hardwareReturningToCapture = true
+            capturePageReturnRequest &+= 1
+        }
         recordHardware(input, time: time, available: available, decision: decision)
         for action in decision.actions {
             switch action {
-            case .focus: prepareHardwareFocus()
-            case .photo: shutter()
+            case .focus:
+                if hardwareReturningToCapture { hardwareFocusAfterReturn = true }
+                else { prepareHardwareFocus() }
+            case .photo:
+                if hardwareReturnFixture { captureFeedback &+= 1 }
+                else { shutter() }
             case .beginBurst: beginBurst()
             case .stopBurst: captureCancellation?.cancel(); captureTask?.cancel()
             }
@@ -1029,20 +1048,33 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             captureCancellation?.cancel(); captureTask?.cancel()
         }
     }
-    private func resetHardwareShutter() {
+    private func resetHardwareShutter(preservingOverlay: Bool = false, reason: String = "capture-cancelled") {
         let time = CACurrentMediaTime()
         hardwareResetTime = time
+        let resumeOverlay = preservingOverlay && controlsActive && settings.experimentalHardwareShutter
+            && isRunning && hardwareControlsSupported && captureEnabled && !hardwareReturningToCapture
         let decision = hardwareShutter.receive(.reset, at: time, experimental: settings.experimentalHardwareShutter,
                                               available: false, burst: false)
-        recordHardware(.reset, time: time, available: false, decision: decision)
+        if resumeOverlay {
+            _ = hardwareShutter.receive(.controlsActive, at: time, experimental: true, available: true, burst: false)
+        }
+        recordHardware(.reset, time: time, available: isRunning && hardwareControlsSupported,
+                       decision: HardwareShutter.Decision(actions: decision.actions,
+                           reason: reason + (resumeOverlay ? "-overlay-preserved" : "")))
         // Cancel only a hardware burst here; cancelCapture also cancels timers/UI captures.
         if decision.actions.contains(.stopBurst) { captureCancellation?.cancel(); captureTask?.cancel() }
-        controlsActive = false
+        hardwareFocusAfterReturn = false
+        hardwareReturningToCapture = false
     }
     private func recordHardware(_ input: HardwareShutter.Input, time: Double, available: Bool,
                                 decision: HardwareShutter.Decision) {
-        hardwareRecords.append(HardwareShutterRecord(time: time, event: input.rawValue, source: "unknown",
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+        hardwareRecords.append(HardwareShutterRecord(appVersion: "\(version) (\(build))", time: time, event: input.rawValue, source: "unknown",
             experimental: settings.experimentalHardwareShutter, available: available,
+            captureAllowed: captureEnabled && !hardwareReturningToCapture,
+            captureTaskBusy: captureTask != nil, returningToCapture: hardwareReturningToCapture,
+            pendingCapture: hardwareShutter.pendingCapture?.rawValue,
             controlsActive: hardwareShutter.controlsActive, primaryDown: hardwareShutter.primaryDown,
             deadline: hardwareShutter.deadline, actions: decision.actions.map(\.rawValue), reason: decision.reason))
         if hardwareRecords.count > 200 { hardwareRecords.removeFirst(hardwareRecords.count - 200) }
@@ -1057,6 +1089,36 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
             focusOnImagePoint(point, single: true, force: true)
         } else { autofocus() }
     }
+    /// Complete only after the UI has dismissed its covers. A queued burst still requires a held press.
+    func capturePageDidReturn(request: UInt64) {
+        guard request == capturePageReturnRequest, hardwareReturningToCapture, isRunning else { return }
+        hardwareReturningToCapture = false
+        captureEnabled = true
+        if hardwareFocusAfterReturn { hardwareFocusAfterReturn = false; prepareHardwareFocus() }
+        hardwareInput(.capturePageReady)
+    }
+    func dismissPresentedCameraUI(completion: @escaping () -> Void) {
+        guard let host = presentationWindow?.rootViewController else {
+            hardwareControlStatus = "無法確認頁面返回，請重新開啟相機；未放行快門"
+            resetHardwareShutter(reason: "return-window-unavailable"); return
+        }
+        guard host.presentedViewController != nil else { completion(); return }
+        // Dismiss the entire presented stack, including a nested editor/share/diagnostics screen.
+        host.dismiss(animated: false, completion: completion)
+    }
+    var hardwareReturnFixture: Bool {
+        isUIFixture && ProcessInfo.processInfo.environment["R6_UI_HARDWARE_RETURN_TEST"] == "1"
+    }
+    func simulateHardwareReturn() {
+        guard hardwareReturnFixture else { return }
+        hardwareControlsSupported = true
+        isRunning = true
+        controlsActive = true
+        hardwareInput(.controlsActive)
+        // Exercise an immediate full click during the page transition, without taking a real photo.
+        hardwareInput(.primaryBegan)
+        hardwareInput(.primaryEnded)
+    }
     func sessionControlsDidBecomeActive(_ session: AVCaptureSession) {
         // Delegate is explicitly delivered on main; these are overlay states, not pressure events.
         controlsActive = true
@@ -1066,7 +1128,9 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         controlsActive = false
         hardwareInput(.controlsInactive)
     }
-    func sessionControlsWillEnterFullscreenAppearance(_ session: AVCaptureSession) {}
+    func sessionControlsWillEnterFullscreenAppearance(_ session: AVCaptureSession) {
+        if controlsActive { hardwareInput(.controlsActive) }
+    }
     func sessionControlsWillExitFullscreenAppearance(_ session: AVCaptureSession) {}
     func readinessCoordinator(_ coordinator: AVCapturePhotoOutputReadinessCoordinator,
                               captureReadinessDidChange captureReadiness: AVCapturePhotoOutput.CaptureReadiness) {

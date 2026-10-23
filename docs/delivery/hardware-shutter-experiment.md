@@ -1,5 +1,7 @@
 # Experimental two-stage hardware shutter — 2026-10-23
 
+This records the original 0.7 experiment. Its 2-second/one-use policy is superseded by [the 0.7.1 device-log fix](hardware-shutter-0.7.1.md).
+
 Target: iPhone 17 / iOS 27. Branch: `codex/camera-control-two-stage`.
 
 ## Behavior
