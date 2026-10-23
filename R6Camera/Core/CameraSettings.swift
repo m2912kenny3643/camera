@@ -105,6 +105,12 @@ struct CameraSettings: Codable, Equatable {
     private var storedTimerCount: Int?
     private var storedLevelSize: LevelSize?
     private var storedBurstRateTrial: BurstRateTrial?
+    private var storedExperimentalHardwareShutter: Bool?
+    /// Missing in older current/C1-C3 payloads: retain the shared hardware shutter.
+    var experimentalHardwareShutter: Bool {
+        get { storedExperimentalHardwareShutter ?? false }
+        set { storedExperimentalHardwareShutter = newValue }
+    }
     var burstRateTrial: BurstRateTrial {
         get { storedBurstRateTrial ?? .standard }
         set { storedBurstRateTrial = newValue }

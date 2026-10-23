@@ -12,22 +12,19 @@ struct CameraPreview: UIViewRepresentable {
         #endif
         view.previewLayer.videoGravity = .resizeAspect
         camera.previewLayer = view.previewLayer
-        let interaction = AVCaptureEventInteraction { [weak camera, weak view] event in
-            guard let camera, let view else { return }
-            DispatchQueue.main.async {
-                switch event.phase {
-                case .began:
-                    view.hardwareBurst = camera.settings.drive.isBurst
-                    if view.hardwareBurst { camera.beginBurst() }
-                    else { camera.shutter() }
-                case .ended:
-                    if view.hardwareBurst { camera.cancelCapture() }
-                    view.hardwareBurst = false
-                case .cancelled: camera.cancelCapture(); view.hardwareBurst = false
-                @unknown default: break
-                }
+        let handle: (AVCaptureEvent, Bool) -> Void = { [weak camera] event, secondary in
+            let input: HardwareShutter.Input
+            switch event.phase {
+            case .began: input = secondary ? .secondaryBegan : .primaryBegan
+            case .ended: input = secondary ? .secondaryEnded : .primaryEnded
+            case .cancelled: input = secondary ? .secondaryCancelled : .primaryCancelled
+            @unknown default: input = .primaryCancelled
             }
+            let time = CACurrentMediaTime()
+            if Thread.isMainThread { camera?.hardwareInput(input, at: time) }
+            else { DispatchQueue.main.async { camera?.hardwareInput(input, at: time) } }
         }
+        let interaction = AVCaptureEventInteraction(primary: { handle($0, false) }, secondary: { handle($0, true) })
         view.addInteraction(interaction)
         view.captureInteraction = interaction
         return view
@@ -44,7 +41,6 @@ final class PreviewSurface: UIView {
     var previewLayer: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
     weak var camera: CameraController?
     var captureInteraction: AVCaptureEventInteraction?
-    var hardwareBurst = false
     var rotationAngle: CGFloat = 0
     override func layoutSubviews() {
         super.layoutSubviews()

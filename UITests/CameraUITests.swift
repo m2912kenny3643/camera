@@ -1,6 +1,26 @@
 import XCTest
 
 final class CameraUITests: XCTestCase {
+    func testExperimentalHardwareShutterDefaultsOffAndCanBeRestored() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchEnvironment["R6_UI_TESTING"] = "1"
+        app.launch()
+        XCTAssertTrue(app.buttons["MENU"].waitForExistence(timeout: 10))
+        app.buttons["MENU"].tap()
+        app.buttons["menu.tab.3"].tap()
+        let setting = app.buttons["hardwareShutter.experimental"]
+        XCTAssertTrue(setting.waitForExistence(timeout: 5))
+        XCTAssertEqual(setting.value as? String, "關閉")
+        setting.tap()
+        XCTAssertEqual(setting.value as? String, "開啟")
+        XCTAssertTrue(app.buttons["hardwareShutter.shareReport"].exists)
+        capture("Hardware-shutter-experimental-settings")
+        setting.tap()
+        XCTAssertEqual(setting.value as? String, "關閉")
+        app.buttons["menu.close"].tap()
+        XCTAssertTrue(app.buttons["MENU"].waitForExistence(timeout: 5))
+    }
     func testLandscapeZoomMenusAndCaptureFeedback() {
         continueAfterFailure = false
         let app = XCUIApplication()

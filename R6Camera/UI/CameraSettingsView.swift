@@ -62,6 +62,16 @@ struct CameraSettingsView: View {
                             menuRow("解除觸控對焦", value: "清除") { camera.unlockTracking() }
                         }
                         if tab == 3 {
+                            toggleRow("實驗性兩段硬體快門", path: \.experimentalHardwareShutter)
+                                .accessibilityIdentifier("hardwareShutter.experimental")
+                                .accessibilityValue(camera.settings.experimentalHardwareShutter ? "開啟" : "關閉")
+                            Text(camera.hardwareControlStatus).font(.system(size: 11)).foregroundStyle(.yellow)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text("先輕按對焦，2 秒內全按拍攝。這是浮層代理，無法識別真實半按或按鍵來源；窗口內音量減仍可能拍攝。開啟後直接全按不拍，音量加不拍。A+ 模式對焦選項由自動模式固定。").font(.system(size: 11)).foregroundStyle(.gray)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            ShareLink(item: camera.hardwareShutterReport) {
+                                Label("分享硬體快門事件 JSON", systemImage: "square.and.arrow.up")
+                            }.font(.system(size: 13)).padding(.vertical, 6).accessibilityIdentifier("hardwareShutter.shareReport")
                             menuRow("連拍穩定速度校準", value: camera.isCalibrating ? "取消" : "開始") {
                                 if camera.isCalibrating { camera.cancelBurstCalibration() } else { calibratePrompt = true }
                             }.accessibilityIdentifier("burst.calibrate")
@@ -73,7 +83,7 @@ struct CameraSettingsView: View {
                             toggleRow("格線", path: \.grid)
                             toggleRow("亮度直方圖", path: \.histogram)
                             menuRow(CameraControl.level.rawValue, value: camera.settings.levelSize.rawValue) { editor = .level }.accessibilityIdentifier("menu.水平儀顯示大小")
-                            Text("固定橫向 · 相機鍵在上緣 · 相機鍵只作快門").font(.system(size: 11)).foregroundStyle(.gray)
+                            Text("固定橫向 · 相機鍵在上緣").font(.system(size: 11)).foregroundStyle(.gray)
                             menuRow("重設拍攝設定", value: "SET") { resetPrompt = true }
                             menuRow("iPhone 權限設定", value: "開啟") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
                         }
