@@ -691,7 +691,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
         let saved = calibrationStore.rate(for: key)
         let trial = calibration?.verifiedFPS == nil && calibration?.failed == false ? calibration?.rate : nil
         calibrationMeasurement = trial == nil ? nil : cancellation
-        let target = min(trial ?? saved ?? snapshot.drive.fps, profile.requestFPS)
+        let target = min(trial ?? calibrationStore.requestRate(conservative: snapshot.drive.fps, for: key), profile.requestFPS)
         burstStableTarget = target
         burstRequestFPS = target
         let initialReason = trial != nil ? "校準測試；會實際拍照存檔" : saved == nil ? "未校準：保守上限" : profile.reason
@@ -717,6 +717,7 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
                     _ = cadence.admit(at: ProcessInfo.processInfo.systemUptime, ready: attempt.accepted)
                     self.captureBusy = !attempt.accepted
                     if cadence.effectiveFPS < previousRate - 0.000001 {
+                        self.calibrationStore.restrict(to: cadence.effectiveFPS, for: key)
                         self.burstDiagnostics?.reduced(to: cadence.effectiveFPS)
                         self.burstStableTarget = cadence.effectiveFPS
                     }

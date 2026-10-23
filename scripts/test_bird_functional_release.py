@@ -48,6 +48,24 @@ class FunctionalBirdReleaseTests(unittest.TestCase):
         self.assertEqual(gate.validate(self.root)['release_kind'], 'functional-test')
         self.assertFalse((self.root / 'docs/bird-release.json').exists())
 
+    def test_final_ipa_contains_exact_model_notices_and_source(self):
+        import zipfile
+        def archive(weight, include_card=True):
+            result = self.root/'functional.ipa'
+            prefix = 'Payload/R6Camera.app/'
+            with zipfile.ZipFile(result, 'w') as package:
+                package.writestr(prefix+'BirdEyePose.onnx', weight)
+                for notice in self.manifest['rights']['notices']:
+                    if include_card or notice != gate.CARD:
+                        package.writestr(prefix+Path(notice).name, (self.root/notice).read_bytes())
+                package.writestr(prefix+'SOURCE-COMMIT.txt', 'synthetic-test-source')
+            return result
+        gate.validate_ipa(archive(self.weight), self.root)
+        with self.assertRaisesRegex(RuntimeError, 'model hash'):
+            gate.validate_ipa(archive(b'tampered'), self.root)
+        with self.assertRaises(KeyError):
+            gate.validate_ipa(archive(self.weight, include_card=False), self.root)
+
     def test_weight_tamper_and_wrong_size_fail(self):
         self.write(gate.MODEL_FILE, b'x' * len(self.weight))
         with self.assertRaisesRegex(RuntimeError, 'digest'):

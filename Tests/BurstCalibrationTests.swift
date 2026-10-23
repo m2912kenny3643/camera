@@ -47,6 +47,21 @@ final class BurstCalibrationTests: XCTestCase {
         c.consume(short); XCTAssertEqual(c.consecutivePasses, 0); XCTAssertEqual(c.rate, 12)
         c.consume(report(fps: 12, reduced: true)); XCTAssertEqual(c.rate, 10)
     }
+    func testPressureCannotRecoverOnNextHoldOrRelaunchWithoutNewCalibration() {
+        let defaults = UserDefaults(suiteName: UUID().uuidString)!
+        let store = BurstCalibrationStore(defaults: defaults)
+        store.save(10, for: "bird")
+        XCTAssertEqual(store.requestRate(conservative: 4, for: "bird"), 10)
+        store.restrict(to: 8, for: "bird")
+        XCTAssertNil(store.rate(for: "bird"))
+        XCTAssertEqual(store.requestRate(conservative: 4, for: "bird"), 4)
+        store.restrict(to: 2, for: "bird")
+        XCTAssertEqual(BurstCalibrationStore(defaults: defaults).requestRate(conservative: 4, for: "bird"), 2)
+        for i in 0..<60 { store.restrict(to: 4, for: "other-\(i)") }
+        XCTAssertEqual(store.requestRate(conservative: 4, for: "bird"), 2)
+        store.save(8, for: "bird") // Only a completed three-pass calibration calls save in the controller.
+        XCTAssertEqual(store.requestRate(conservative: 4, for: "bird"), 8)
+    }
     func testExposureFloorAndHighDriveCeiling() {
         XCTAssertEqual(BurstCalibration(key: "x", drive: .burst, maximum: 12).rates, [6,4,2,1])
         XCTAssertEqual(BurstCalibration(key: "x", drive: .burstHighPlus, maximum: 0.49).rate, 0.49)

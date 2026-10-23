@@ -53,11 +53,26 @@ struct BurstCalibrationStore {
               value.isFinite, value > 0, value <= 12 else { return nil }
         return value
     }
+    func requestRate(conservative: Double, for key: String) -> Double {
+        let limit = (defaults.dictionary(forKey: "burst.pressure.v1")?[key] as? Double).flatMap { $0.isFinite && $0 > 0 ? $0 : nil }
+        return min(rate(for: key) ?? conservative, limit ?? .infinity)
+    }
+    func restrict(to limit: Double, for key: String) {
+        guard limit.isFinite, limit > 0 else { return }
+        var verified = defaults.dictionary(forKey: "burst.calibrated.v1") ?? [:]
+        if let prior = rate(for: key), prior > limit { verified.removeValue(forKey: key) }
+        defaults.set(verified, forKey: "burst.calibrated.v1")
+        var limits = defaults.dictionary(forKey: "burst.pressure.v1") ?? [:]
+        limits[key] = min(limits[key] as? Double ?? .infinity, limit)
+        defaults.set(limits, forKey: "burst.pressure.v1")
+    }
     func save(_ rate: Double, for key: String) {
         guard rate.isFinite, rate > 0, rate <= 12 else { return }
         var values = defaults.dictionary(forKey: "burst.calibrated.v1") ?? [:]
         // Bounded cache; clearing old calibration never silently qualifies a new configuration.
         if values.count >= 50, values[key] == nil { values.removeAll() }
+        var limits = defaults.dictionary(forKey: "burst.pressure.v1") ?? [:]
+        limits[key] = rate; defaults.set(limits, forKey: "burst.pressure.v1")
         values[key] = rate
         defaults.set(values, forKey: "burst.calibrated.v1")
     }

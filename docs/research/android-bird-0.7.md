@@ -47,3 +47,9 @@ Python ORT is isolated under ignored `build/python-bird07`, installed with `--ta
 This evidence allows a clearly labeled functional-test artifact containing the exact model and full-source notices. It proves the model runs and produces real landmark outputs; it does not prove all predictions correct or the camera lens has physically focused on the eye. Keep confidence/geometry/age checks, one-frame freshness, eye→observed head→body downgrade and identity association. Never add guessed eyes to compensate for missed points.
 
 Deferred formal acceptance remains: at least 100 independent annotated real images, invisible-eye false-positive rate, localization and miss metrics, phone inference throughput/latency, temperature, multi-bird identity stability and camera focus. Phone burst cadence with bird inference enabled must also be measured separately. Neither these four images nor Windows inference substitutes for those tests.
+
+## Native sampler cross-check
+
+A second Windows ORT probe reproduced the native adapter's direct bilinear RGB sampling, including source pixel centers and gray114 outside bounds. Top body scores were eagle0.866, artificially eye-masked HEAD0.671 and BODY0.594, frontal owl0.905; the distant flock maximum was0.0014 (below threshold). Eagle measured left eye was approximately(0.4927,0.2631), right eye(0.4743,0.2632). This supplements the earlier Pillow antialiased reference; it does not claim bit-exact Android Canvas decoding. Raw probe is retained locally at `build/research/bird07/native-sampler-smoke.json`.
+
+ONNX Runtime1.24.2 MIT license and upstream ThirdPartyNotices are preserved in the application resources from the official pinned tag.

@@ -25,7 +25,7 @@ targets:
         product: onnxruntime
     sources:
       - path: R6Camera
-        excludes: [Info.plist, Resources/BirdEyePose.onnx, Resources/BIRD-MODEL-CARD.md, Resources/BIRD-FIXTURE-SOURCES.json, Resources/LICENSE-ULTRALYTICS.txt]
+        excludes: [Info.plist, Resources/BirdEyePose.onnx, Resources/BIRD-MODEL-CARD.md, Resources/BIRD-FIXTURE-SOURCES.json, Resources/LICENSE-ULTRALYTICS.txt, Resources/LICENSE-ONNXRUNTIME.txt, Resources/THIRD-PARTY-ONNXRUNTIME.txt]
       - path: R6Camera/Resources/BirdEyePose.onnx
         buildPhase: resources
       - path: R6Camera/Resources/BIRD-MODEL-CARD.md
@@ -33,6 +33,10 @@ targets:
       - path: R6Camera/Resources/BIRD-FIXTURE-SOURCES.json
         buildPhase: resources
       - path: R6Camera/Resources/LICENSE-ULTRALYTICS.txt
+        buildPhase: resources
+      - path: R6Camera/Resources/LICENSE-ONNXRUNTIME.txt
+        buildPhase: resources
+      - path: R6Camera/Resources/THIRD-PARTY-ONNXRUNTIME.txt
         buildPhase: resources
     info:
       path: R6Camera/Info.plist
