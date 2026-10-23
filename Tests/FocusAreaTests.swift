@@ -112,10 +112,13 @@ final class FocusAreaTests: XCTestCase {
         var gate = VisionFrameGate()
         var frame = TrackingResult(); frame.epoch = 1; frame.observedAt = 1
         XCTAssertTrue(gate.accept(frame, currentEpoch: 1, now: 1.01))
-        frame.epoch = 2
-        XCTAssertTrue(gate.accept(frame, currentEpoch: 2, now: 1.02))
-        frame.epoch = 3
-        XCTAssertFalse(gate.accept(frame, currentEpoch: 3, now: 1.3))
+        frame.epoch = 2; frame.observedAt = 1.02
+        XCTAssertTrue(gate.accept(frame, currentEpoch: 2, now: 1.03))
+        var selection = frame; selection.epoch = 3
+        XCTAssertTrue(gate.accept(selection, currentEpoch: 3, now: 1.04))
+        XCTAssertFalse(gate.accept(frame, currentEpoch: 3, now: 1.04))
+        selection.epoch = 4
+        XCTAssertFalse(gate.accept(selection, currentEpoch: 4, now: 1.3))
     }
     func testAreaAndPolicyChangeInvalidateConfiguration() {
         var s = CameraSettings(); let initial = FocusConfiguration(s)

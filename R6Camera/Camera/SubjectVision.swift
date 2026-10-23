@@ -24,6 +24,13 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         epoch &+= 1; trackingSeed = nil
         return epoch
     }
+    /// Commit a selection only if no newer input/settings/lifecycle change superseded it.
+    private func finishSelection(expected: UInt64) -> UInt64? {
+        snapshotLock.lock(); defer { snapshotLock.unlock() }
+        guard epoch == expected else { return nil }
+        epoch &+= 1; trackingSeed = nil
+        return epoch
+    }
     /// Invalidates already queued fast callbacks when a model declares loss/occlusion.
     private func stopContinuation(expected: UInt64) -> UInt64? {
         snapshotLock.lock(); defer { snapshotLock.unlock() }
@@ -67,17 +74,25 @@ final class SubjectVision: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     func select(_ point: CGPoint) {
         let selectionEpoch = invalidate()
         queue.async {
-            guard self.settings.autofocus != .manual else { return }
-            self.tracker.select(at: point, eyes: self.settings.eyes, mode: self.settings.autofocus, area: self.settings.focusArea, now: CACurrentMediaTime())
-            self.publish(self.tracker.result, histogram: [], epoch: selectionEpoch)
+            guard self.currentEpoch == selectionEpoch, self.settings.autofocus != .manual else { return }
+            var selectedTracker = self.tracker
+            selectedTracker.select(at: point, eyes: self.settings.eyes, mode: self.settings.autofocus, area: self.settings.focusArea, now: CACurrentMediaTime())
+            // Frames can queue between the main-thread invalidation and this serial command.
+            // Publish a new generation after choosing the target so those callbacks cannot win.
+            guard let publicationEpoch = self.finishSelection(expected: selectionEpoch) else { return }
+            self.tracker = selectedTracker
+            self.publish(self.tracker.result, histogram: [], epoch: publicationEpoch)
         }
     }
     func acquire() {
         let selectionEpoch = invalidate()
         queue.async {
-            guard self.settings.autofocus != .manual else { return }
-            self.tracker.acquire(settings: self.settings, at: CACurrentMediaTime())
-            self.publish(self.tracker.result, histogram: [], epoch: selectionEpoch)
+            guard self.currentEpoch == selectionEpoch, self.settings.autofocus != .manual else { return }
+            var selectedTracker = self.tracker
+            selectedTracker.acquire(settings: self.settings, at: CACurrentMediaTime())
+            guard let publicationEpoch = self.finishSelection(expected: selectionEpoch) else { return }
+            self.tracker = selectedTracker
+            self.publish(self.tracker.result, histogram: [], epoch: publicationEpoch)
         }
     }
     func unlock() {
