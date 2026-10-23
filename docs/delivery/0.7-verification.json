@@ -1,0 +1,69 @@
+{
+  "version": "0.7.0",
+  "build": 7,
+  "commit": "fd7523b1ad82e762e9106c5b40993a5398263904",
+  "run": "https://github.com/m2912kenny3643/camera/actions/runs/39893793693",
+  "core_tests": 71,
+  "native_unit_tests": 77,
+  "python_tests": 45,
+  "ui_flows": 2,
+  "bird_model_bundled": true,
+  "model_sha256": "350f370aac45ec120bb73434eb0add0446a5f327344c65b03a633229dc2c551b",
+  "model_bytes": 10802648,
+  "bird_functional_test_complete": true,
+  "model_fixtures": [
+    "eagle",
+    "head-artificial",
+    "body-artificial",
+    "frontal",
+    "distant-known-miss",
+    "background-crop"
+  ],
+  "formal_qualification": false,
+  "independent_real_images_evaluated_for_accuracy": 0,
+  "bird_phone_performance_measured": false,
+  "actual_phone_burst_fps_verified": false,
+  "hardware_focus_keys_level_verified": false,
+  "burst_same_hold_recovery": false,
+  "pressure_limit_persists": true,
+  "calibration_three_passes_required": true,
+  "volume_key_capture_unresolved": true,
+  "ipa_bytes": 29978846,
+  "ipa_sha256": "138ae39f130e9b8290485f7d4e0b66c6ee255662b5e9adb0a5d690407295f10a",
+  "architecture": "arm64",
+  "signed": false,
+  "compiler_warning_categories": [
+    "'isVideoOrientationSupported' was deprecated in iOS 17.0: Use -isVideoRotationAngleSupported: instead [#DeprecatedDeclaration]",
+    "'videoOrientation' was deprecated in iOS 17.0: Use -videoRotationAngle instead [#DeprecatedDeclaration]",
+    "Metadata extraction skipped, no AppIntents.framework dependency found",
+    "capture of 'cancellation' with non-Sendable type 'CaptureCancellation' in a '@Sendable' closure [#SendableClosureCaptures]",
+    "capture of 'self' with non-Sendable type 'CameraController' in a '@Sendable' closure [#SendableClosureCaptures]"
+  ],
+  "notice_verification": [
+    {
+      "notice": "BIRD-MODEL-CARD.md",
+      "matches_source_git_blob": true,
+      "workspace_byte_equal": false,
+      "sha256": "2b18f031be2f2582208d5e8017740ce4368dde3e752e5f843d0d5fff8b670d0b"
+    },
+    {
+      "notice": "LICENSE-ULTRALYTICS.txt",
+      "matches_source_git_blob": true,
+      "workspace_byte_equal": true,
+      "sha256": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0"
+    },
+    {
+      "notice": "LICENSE-ONNXRUNTIME.txt",
+      "matches_source_git_blob": true,
+      "workspace_byte_equal": true,
+      "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c"
+    },
+    {
+      "notice": "THIRD-PARTY-ONNXRUNTIME.txt",
+      "matches_source_git_blob": true,
+      "workspace_byte_equal": true,
+      "sha256": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2"
+    }
+  ],
+  "cross_platform_notice_note": "CI compares bundled notices byte-for-byte with its checkout; delivered notices also equal canonical git blobs. Windows working-tree CRLF can differ; normalized text is equal."
+}
