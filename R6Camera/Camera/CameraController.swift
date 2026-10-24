@@ -234,7 +234,8 @@ final class CameraController: NSObject, ObservableObject, AVCaptureSessionContro
 
     private var fixtureTracker = SubjectTracker()
     private var fixtureDetections: [SubjectDetection] {
-        [SubjectDetection(kind: .person, bounds: CGRect(x: 0.35, y: 0.2, width: 0.2, height: 0.6), confidence: 0.9,
+        if isUIFixture && ProcessInfo.processInfo.environment["R6_UI_EMPTY_DETECTIONS"] == "1" { return [] }
+        return [SubjectDetection(kind: .person, bounds: CGRect(x: 0.35, y: 0.2, width: 0.2, height: 0.6), confidence: 0.9,
                           leftEye: CGPoint(x: 0.42, y: 0.28), headBounds: CGRect(x: 0.38, y: 0.22, width: 0.12, height: 0.15))]
     }
     private func prepareUIFixture() {

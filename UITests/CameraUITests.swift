@@ -113,6 +113,7 @@ final class CameraUITests: XCTestCase {
         app.launchEnvironment["R6_UI_TESTING"] = "1"
         app.launchEnvironment["R6_UI_FEEDBACK_TEST"] = "1"
         app.launchEnvironment["R6_UI_HARDWARE_RETURN_TEST"] = "1"
+        app.launchEnvironment["R6_UI_EMPTY_DETECTIONS"] = "1"
         app.launch()
         let area = app.buttons["hud.area"]
         XCTAssertTrue(area.waitForExistence(timeout: 10))
@@ -138,6 +139,24 @@ final class CameraUITests: XCTestCase {
         halfAndFull(2)
         XCTAssertEqual(area.value as? String, "彈性區域自動對焦2")
         XCTAssertTrue(app.buttons["quick.open"].isHittable)
+    }
+    func testHalfPressSelectsOverlappingBodyWithEyeOutsideSpot() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchEnvironment["R6_UI_TESTING"] = "1"
+        app.launchEnvironment["R6_UI_FEEDBACK_TEST"] = "1"
+        app.launchEnvironment["R6_UI_HARDWARE_RETURN_TEST"] = "1"
+        app.launch()
+        XCTAssertTrue(app.buttons["hud.area"].waitForExistence(timeout: 10))
+        app.buttons["hud.area"].tap()
+        app.buttons["option.重點自動對焦"].tap()
+        app.buttons["fixture.hardwareReturn"].tap()
+        expectation(for: NSPredicate(format: "value == %@", "1"), evaluatedWith: app.buttons["fixture.capture"])
+        waitForExpectations(timeout: 8)
+        XCTAssertTrue(app.descendants(matching: .any)["focus.selectedSubject"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.descendants(matching: .any)["focus.commandPoint"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["focus.areaFrame"].exists)
+        capture("Half-press-overlapping-body-focus-frame")
     }
     func testExperimentalHardwareShutterDefaultsOnAndCanBeRestored() {
         continueAfterFailure = false
