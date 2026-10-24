@@ -74,7 +74,7 @@ final class FocusAreaTests: XCTestCase {
             XCTAssertFalse(tracker.result.locked); XCTAssertNil(tracker.result.touchPoint)
             tracker.acquire(settings: s, at: 0)
             XCTAssertTrue(tracker.result.locked)
-            let outside = subject(CGPoint(x: 0.67, y: 0.5))
+            let outside = subject(CGPoint(x: 0.675, y: 0.5))
             let result = tracker.update([outside], at: 0.1, settings: s)
             XCTAssertEqual(result.missing, !whole)
             if !whole {
@@ -96,7 +96,7 @@ final class FocusAreaTests: XCTestCase {
         tracker.acquire(settings: s, at: 3)
         XCTAssertEqual(tracker.result.focusAction, .continuous(s.focusArea.center))
     }
-    func testNewTouchCannotAcquireOutsideTargetAfterWholeAreaContinuation() {
+    func testNewTouchUsesOverlappingBodyWithoutFollowingOutsideEye() {
         var s = CameraSettings(); s.focusArea.mode = .flexible1
         var tracker = SubjectTracker()
         _ = tracker.update([subject(CGPoint(x: 0.64, y: 0.5))], at: 0, settings: s)
@@ -105,8 +105,63 @@ final class FocusAreaTests: XCTestCase {
         outside.bounds = CGRect(x: 0.60, y: 0.4, width: 0.14, height: 0.2)
         _ = tracker.update([outside], at: 0.1, settings: s)
         tracker.select(at: CGPoint(x: 0.62, y: 0.5), area: s.focusArea)
-        XCTAssertFalse(tracker.result.locked)
-        XCTAssertEqual(tracker.result.touchPoint, CGPoint(x: 0.62, y: 0.5))
+        XCTAssertTrue(tracker.result.locked)
+        XCTAssertNil(tracker.result.touchPoint)
+        XCTAssertTrue(s.focusArea.contains(tracker.result.selected!.focusPoint(s.eyes)))
+    }
+    func testServoCenterFallbackAcquiresLaterSubjectButOneShotStaysFixed() {
+        for mode in [AutofocusMode.servo, .single] {
+            var s = CameraSettings(); s.autofocus = mode; s.focusArea.mode = .flexible1
+            var tracker = SubjectTracker(); tracker.acquire(settings: s, at: 10)
+            XCTAssertEqual(tracker.result.areaFocusPoint, s.focusArea.center)
+            let result = tracker.update([subject(CGPoint(x: 0.6, y: 0.5))], at: 10.1, settings: s)
+            XCTAssertEqual(result.locked, mode == .servo)
+            if mode == .servo {
+                XCTAssertNil(result.areaFocusPoint)
+                XCTAssertEqual(result.focusAction, .continuous(CGPoint(x: 0.6, y: 0.5)))
+            } else {
+                XCTAssertEqual(result.areaFocusPoint, s.focusArea.center)
+                XCTAssertEqual(result.focusAction, .none)
+            }
+        }
+    }
+    func testOneShotKeepsCommandedGeometryUntilNextAcquisition() {
+        var s = CameraSettings(); s.autofocus = .single
+        var tracker = SubjectTracker()
+        _ = tracker.update([subject(CGPoint(x: 0.5, y: 0.5))], at: 1, settings: s)
+        tracker.acquire(settings: s, at: 1)
+        let selected = tracker.result.selected!.bounds
+        let moved = tracker.update([subject(CGPoint(x: 0.53, y: 0.5))], at: 1.1, settings: s)
+        XCTAssertEqual(moved.selected?.bounds, selected)
+        XCTAssertEqual(moved.focusAction, .none)
+        tracker.acquire(settings: s, at: 1.1)
+        XCTAssertEqual(tracker.result.selected?.bounds.midX, 0.53)
+    }
+    func testExpansionFirstCommandsCenterThenAcquiresPeripheralSubject() {
+        for mode in [FocusAreaMode.expanded, .surround] {
+            var s = CameraSettings(); s.focusArea.mode = mode
+            var tracker = SubjectTracker()
+            let peripheral = subject(CGPoint(x: 0.55, y: 0.5))
+            _ = tracker.update([peripheral], at: 1, settings: s)
+            tracker.acquire(settings: s, at: 1)
+            XCTAssertEqual(tracker.result.focusAction, .continuous(s.focusArea.center))
+            XCTAssertFalse(tracker.result.locked)
+            let next = tracker.update([peripheral], at: 1.1, settings: s)
+            XCTAssertTrue(next.locked)
+            XCTAssertEqual(next.focusAction, .continuous(CGPoint(x: 0.55, y: 0.5)))
+        }
+    }
+    func testOverlappingBodyAcquiresInAreaEvenWhenEyeIsOutside() {
+        for mode in FocusAreaMode.allCases where mode != .whole {
+            var s = CameraSettings(); s.focusArea.mode = mode
+            let body = SubjectDetection(kind: .person, bounds: CGRect(x: 0.4, y: 0.35, width: 0.2, height: 0.5),
+                                        confidence: 0.9, leftEye: CGPoint(x: 0.5, y: 0.36))
+            var tracker = SubjectTracker()
+            _ = tracker.update([body], at: 1, settings: s)
+            tracker.acquire(settings: s, at: 1)
+            XCTAssertTrue(tracker.result.locked, mode.rawValue)
+            XCTAssertTrue(s.focusArea.contains(tracker.result.selected!.focusPoint(s.eyes)))
+        }
     }
     func testNewSelectionEpochCanReuseFreshObservationButNeverExpiredOne() {
         var gate = VisionFrameGate()

@@ -56,6 +56,21 @@ struct SubjectDetection: Identifiable {
         }
         return headBounds ?? bounds
     }
+    /// Keep identity/body geometry, but place the AF command inside an eligible cell.
+    func constrained(to area: FocusArea, eyes: EyePriority) -> SubjectDetection? {
+        if area.contains(focusPoint(eyes)) { return self }
+        for cell in area.cells {
+            let overlap = bounds.intersection(cell)
+            guard !overlap.isNull, overlap.width > 0, overlap.height > 0 else { continue }
+            var target = self
+            target.leftEye = leftEye.flatMap { cell.contains($0) ? $0 : nil }
+            target.rightEye = rightEye.flatMap { cell.contains($0) ? $0 : nil }
+            let head = headBounds?.intersection(cell)
+            target.headBounds = head.flatMap { !$0.isNull && $0.area > 0 ? $0 : nil } ?? overlap
+            return target
+        }
+        return nil
+    }
 }
 
 enum FocusAction: Equatable {
@@ -106,7 +121,7 @@ struct SubjectTracker {
         if let now, result.observedAt.map({ FrameFreshness.isCurrent($0, now: now) }) != true {
             result.candidates = []; result.observedAt = nil
         }
-        guard let subject = result.candidates.filter({ $0.bounds.contains(point) && area.contains($0.focusPoint(eyes)) })
+        guard let subject = result.candidates.compactMap({ $0.constrained(to: area, eyes: eyes) }).filter({ $0.bounds.contains(point) })
             .min(by: { $0.bounds.area < $1.bounds.area }) else {
             result.selected = nil
             result.locked = false
@@ -117,6 +132,7 @@ struct SubjectTracker {
             return
         }
         result.selected = subject
+        lastSeen = now ?? result.observedAt ?? 0
         result.locked = true
         result.missing = false
         result.lost = false
@@ -124,14 +140,19 @@ struct SubjectTracker {
         result.focusAction = mode == .single ? .single(subject.focusPoint(eyes)) : .continuous(subject.focusPoint(eyes))
     }
     /// Explicit half-press acquisition; unlocked white candidates never drive subject AF.
-    mutating func acquire(settings: CameraSettings, at now: Double) {
+    mutating func acquire(settings: CameraSettings, at now: Double, assisting: Bool = false) {
         guard settings.autofocus != .manual else { reset(); return }
         let area = settings.focusArea
         if result.observedAt.map({ FrameFreshness.isCurrent($0, now: now) }) != true {
             result.candidates = []
             result.observedAt = nil // Center fallback is a control command, not a new observation.
         }
-        let candidates = result.candidates.filter { area.contains($0.focusPoint(settings.eyes)) }
+        let candidates = result.candidates.compactMap { $0.constrained(to: area, eyes: settings.eyes) }.filter {
+            // First SERVO command belongs to the central AF cell. Later frames may assist.
+            assisting || settings.autofocus != .servo ||
+                (area.mode != .expanded && area.mode != .surround) ||
+                area.acquisitionRank($0.focusPoint(settings.eyes)) == 0
+        }
         let target = candidates.sorted {
             let first = area.acquisitionRank($0.focusPoint(settings.eyes)) ?? Int.max
             let second = area.acquisitionRank($1.focusPoint(settings.eyes)) ?? Int.max
@@ -140,6 +161,7 @@ struct SubjectTracker {
             return rank($0, center: area.center) > rank($1, center: area.center)
         }.first
         if let target {
+            lastSeen = now
             result.selected = target; result.locked = true
             result.missing = false; result.lost = false; result.touchPoint = nil; result.areaFocusPoint = nil
             result.focusAction = settings.autofocus == .single ? .single(target.focusPoint(settings.eyes)) : .continuous(target.focusPoint(settings.eyes))
@@ -153,14 +175,21 @@ struct SubjectTracker {
                          settings: CameraSettings) -> TrackingResult {
         let mayLeaveArea = result.locked && settings.autofocus == .servo && settings.focusArea.wholeAreaTracking
         let candidates = detections.filter {
-            settings.subjects.accepts($0.kind) && $0.confidence >= 0.35 &&
-                (mayLeaveArea || settings.focusArea.contains($0.focusPoint(settings.eyes)))
-        }
+            settings.subjects.accepts($0.kind) && $0.confidence >= 0.35
+        }.compactMap { mayLeaveArea ? $0 : $0.constrained(to: settings.focusArea, eyes: settings.eyes) }
         result.focusAction = .none
         result.candidates = candidates
         result.observedAt = now
         if settings.autofocus == .manual { reset(); return result }
-        if result.touchPoint != nil || result.areaFocusPoint != nil { return result }
+        if result.touchPoint != nil { return result }
+        // ONE SHOT retains the geometry of the last commanded focus, not a moving box.
+        if settings.autofocus == .single && (result.locked || result.areaFocusPoint != nil) { return result }
+        if result.areaFocusPoint != nil {
+            if settings.autofocus == .servo && !candidates.isEmpty {
+                acquire(settings: settings, at: now, assisting: true)
+            }
+            return result
+        }
         if let previous = result.selected {
             let matches = candidates.filter { $0.kind == previous.kind }
                 .map { ($0, Self.associationScore(previous, $0)) }
